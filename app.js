@@ -84,6 +84,8 @@ function signOut() {
   store(sessionStorage,'oryan-auth');store(localStorage,'oryan-email');store(localStorage,'oryan-signed-out','1');
   dirty=false;location.reload();
 }
+// The Sheet keeps the stored type 'Blackout' so existing rows still work; people see 'Blocked date'.
+const typeLabel = t => t === 'Blackout' ? 'Blocked date' : t;
 function normalize(r) {
   const openingPaid = r.openingPaid ?? Math.round((r.paid - (r.payments || []).reduce((n,p) => n+p.amount,0))*100)/100;
   const isAudio = r.audio === true || r.sound === true;
@@ -145,7 +147,7 @@ function render() {
 }
 function renderUpcoming() {
   const upcoming=records.filter(r=>r.date>=today()).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,3);
-  $('#upcomingCards').innerHTML=upcoming.length?upcoming.map(r=>`<button class="upcoming-card" data-detail="${esc(r.id)}"><span class="date-tile"><small>${localDate(r.date).toLocaleDateString('en-US',{month:'short'})}</small><b>${localDate(r.date).getDate()}</b></span><span><b>${esc(r.client)}</b><small>${esc(r.type)} · ${localDate(r.date).toLocaleDateString('en-US',{weekday:'long'})}</small><em>${r.total==null?'Agreed price needs review':balance(r)?money(balance(r))+' to collect':'Paid in full'}</em></span><span>${ICONS.chevronRight}</span></button>`).join(''):'<p class="empty-copy">No upcoming events yet. Add a booking to start planning.</p>';
+  $('#upcomingCards').innerHTML=upcoming.length?upcoming.map(r=>`<button class="upcoming-card" data-detail="${esc(r.id)}"><span class="date-tile"><small>${localDate(r.date).toLocaleDateString('en-US',{month:'short'})}</small><b>${localDate(r.date).getDate()}</b></span><span><b>${esc(r.client)}</b><small>${esc(typeLabel(r.type))} · ${localDate(r.date).toLocaleDateString('en-US',{weekday:'long'})}</small><em>${r.total==null?'Agreed price needs review':balance(r)?money(balance(r))+' to collect':'Paid in full'}</em></span><span>${ICONS.chevronRight}</span></button>`).join(''):'<p class="empty-copy">No upcoming events yet. Add a booking to start planning.</p>';
   bindDetails($('#upcomingCards'));
 }
 function renderCharts(data) {
@@ -155,7 +157,7 @@ function renderCharts(data) {
   const days=Array(7).fill(0); data.forEach(r=>days[(localDate(r.date).getDay()+6)%7]++); const max=Math.max(...days,1), best=days.indexOf(Math.max(...days));
   $('#weekdays').innerHTML=days.map((n,i)=>`<div class="day ${n===max?'best':''}"><span>${['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][i]}</span><div class="track"><span style="width:${n/max*100}%"></span></div><span>${n}</span></div>`).join('');
   $('#bestDay').textContent=data.length?`${['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'][best]} leads with ${days[best]} events (${Math.round(days[best]/data.length*100)}%). Based on event dates, not when customers booked.`:'No events in this selection.';
-  const types=new Map(); data.forEach(r=>types.set(r.type,(types.get(r.type)||0)+1)); const sorted=[...types].sort((a,b)=>b[1]-a[1]);
+  const types=new Map(); data.forEach(r=>types.set(typeLabel(r.type),(types.get(typeLabel(r.type))||0)+1)); const sorted=[...types].sort((a,b)=>b[1]-a[1]);
   $('#types').innerHTML=sorted.slice(0,5).map(([t,n])=>`<div class="type"><span>${esc(t)}</span><div class="track"><span style="width:${n/(sorted[0]?.[1]||1)*100}%"></span></div><span>${n}</span></div>`).join('')+'<small class="empty-copy">Top event types in this selection.</small>';
 }
 function renderAttention(data) {
@@ -167,19 +169,19 @@ function renderAttention(data) {
 }
 function filtered() {
   const q=$('#search').value.trim().toLowerCase(), s=$('#status').value, range=$('#dateRange').value;
-  const result=base().filter(r=>[r.client,r.type,r.contract,r.phone].join(' ').toLowerCase().includes(q))
+  const result=base().filter(r=>[r.client,typeLabel(r.type),r.contract,r.phone].join(' ').toLowerCase().includes(q))
     .filter(r=>s==='all'||s==='balance'&&balance(r)>0||s==='paid'&&r.total!=null&&balance(r)===0||s==='duplicate'&&records.filter(other=>other.date===r.date).length>1||s==='review'&&review(r)||s==='balanceReview'&&r.total!=null&&review(r)||s==='price'&&r.total==null||s==='credit'&&r.total!=null&&r.paid>r.total||s==='overdue'&&balance(r)>0&&r.due&&r.due<today())
     .filter(r=>range==='all'||range==='upcoming'&&r.date>=today()||range==='past'&&r.date<today());
   return result.sort((a,b)=>$('#sort').value==='balance'?balance(b)-balance(a)||a.date.localeCompare(b.date):$('#sort').value==='soonest'?a.date.localeCompare(b.date):b.date.localeCompare(a.date));
 }
 function badge(r) {
-  if (r.type === 'Blackout') return '<span class="badge blackout">Blackout</span>';
+  if (r.type === 'Blackout') return '<span class="badge blackout">Blocked</span>';
   return `<span class="badge ${review(r)?'review':balance(r)?'due':''}">${r.total==null?'Agreed price missing':review(r)?'Review imported balance':balance(r)?'Balance due':'Paid in full'}</span>`;
 }
 function renderTable() {
   const list=filtered(), size=7; page=Math.min(page,Math.max(0,Math.ceil(list.length/size)-1));
   $('#count').textContent=`${list.length} bookings`;
-  $('#rows').innerHTML=list.slice(page*size,(page+1)*size).map(r=>`<tr><td class="guest-cell"><button class="guest guest-button" data-detail="${esc(r.id)}"><span class="avatar">${esc(r.client.split(' ').map(x=>x[0]).slice(0,2).join(''))}</span><span><b>${esc(r.client)}</b><small>${esc(r.type)} · #${esc(r.contract)}</small></span></button></td><td class="event-cell" data-label="Event date">${dateLabel(r.date)}<small>${localDate(r.date).toLocaleDateString('en-US',{weekday:'long'})}</small></td><td data-label="Agreed price">${r.total==null?'Not entered':money(r.total)}</td><td data-label="Paid">${money(r.paid)}</td><td class="balance-cell" data-label="Balance due">${r.total==null?'Review price':money(balance(r))}${r.total!=null&&r.paid>r.total?`<small>Credit ${money(Math.round((r.paid-r.total)*100)/100)}</small>`:''}</td><td class="status-cell">${badge(r)}</td><td class="actions-cell"><button class="quiet" data-detail="${esc(r.id)}">Details & history</button>${balance(r)>0?`<button class="quiet payment-action" data-payment="${esc(r.id)}">${ICONS.plus}Payment</button>`:''}</td></tr>`).join('')||'<tr class="empty-row"><td colspan="7"><strong>No bookings match.</strong><p>Try a different date or payment filter.</p><button class="quiet" id="clearFilters">Clear filters</button></td></tr>';
+  $('#rows').innerHTML=list.slice(page*size,(page+1)*size).map(r=>`<tr><td class="guest-cell"><button class="guest guest-button" data-detail="${esc(r.id)}"><span class="avatar">${esc(r.client.split(' ').map(x=>x[0]).slice(0,2).join(''))}</span><span><b>${esc(r.client)}</b><small>${esc(typeLabel(r.type))} · #${esc(r.contract)}</small></span></button></td><td class="event-cell" data-label="Event date">${dateLabel(r.date)}<small>${localDate(r.date).toLocaleDateString('en-US',{weekday:'long'})}</small></td><td data-label="Agreed price">${r.total==null?'Not entered':money(r.total)}</td><td data-label="Paid">${money(r.paid)}</td><td class="balance-cell" data-label="Balance due">${r.total==null?'Review price':money(balance(r))}${r.total!=null&&r.paid>r.total?`<small>Credit ${money(Math.round((r.paid-r.total)*100)/100)}</small>`:''}</td><td class="status-cell">${badge(r)}</td><td class="actions-cell"><button class="quiet" data-detail="${esc(r.id)}">Details & history</button>${balance(r)>0?`<button class="quiet payment-action" data-payment="${esc(r.id)}">${ICONS.plus}Payment</button>`:''}</td></tr>`).join('')||'<tr class="empty-row"><td colspan="7"><strong>No bookings match.</strong><p>Try a different date or payment filter.</p><button class="quiet" id="clearFilters">Clear filters</button></td></tr>';
   $('#pageInfo').textContent=list.length?`${page*size+1}–${Math.min((page+1)*size,list.length)} of ${list.length}`:'No bookings';
   $('#prev').disabled=page===0; $('#next').disabled=(page+1)*size>=list.length;
   bindDetails($('#rows')); $('#rows').querySelectorAll('[data-payment]').forEach(b=>b.onclick=()=>openPayment(b.dataset.payment));
@@ -292,7 +294,7 @@ function renderCalendar() {
     const dayEvents = records.filter(r => r.date === selectedDate);
     const hasBlackout = dayEvents.some(r => r.type === 'Blackout');
     $('#calSelectedDayBadge').className = `badge ${hasBlackout ? 'blackout' : dayEvents.length ? (dayEvents.some(r => review(r)) ? 'review' : dayEvents.some(r => balance(r) > 0) ? 'due' : '') : ''}`;
-    $('#calSelectedDayBadge').textContent = hasBlackout ? 'Blackout date' : dayEvents.length ? `${dayEvents.length} booking${dayEvents.length === 1 ? '' : 's'}` : (selectedDate >= t ? 'Available' : 'Past date');
+    $('#calSelectedDayBadge').textContent = hasBlackout ? 'Blocked date' : dayEvents.length ? `${dayEvents.length} booking${dayEvents.length === 1 ? '' : 's'}` : (selectedDate >= t ? 'Available' : 'Past date');
 
     if (dayEvents.length) {
       $('#calSelectedDayEvents').innerHTML = dayEvents.map(r => {
@@ -300,12 +302,12 @@ function renderCalendar() {
           return `<div class="day-event-card blackout-card" data-detail="${esc(r.id)}">
             <div class="day-event-bar blackout"></div>
             <div class="day-event-info">
-              <div class="day-event-title">Blackout Date</div>
+              <div class="day-event-title">Blocked Date</div>
               <div class="day-event-sub">Blocked by <b>${esc(r.client)}</b> · ${dateLabel(r.date)}</div>
               ${r.notes ? `<div class="day-event-notes">${esc(r.notes)}</div>` : ''}
             </div>
             <div class="day-event-actions">
-              <span class="badge blackout">Blackout</span>
+              <span class="badge blackout">Blocked</span>
             </div>
           </div>`;
         }
@@ -315,7 +317,7 @@ function renderCalendar() {
           <div class="day-event-bar ${barClass}"></div>
           <div class="day-event-info">
             <div class="day-event-title">${esc(r.client)}</div>
-            <div class="day-event-sub">${esc(r.type)} · #${esc(r.contract)} · ${dateLabel(r.date)}</div>
+            <div class="day-event-sub">${esc(typeLabel(r.type))} · #${esc(r.contract)} · ${dateLabel(r.date)}</div>
             ${r.notes ? `<div class="day-event-notes">${esc(r.notes)}</div>` : ''}
           </div>
           <div class="day-event-actions">
@@ -339,7 +341,7 @@ function renderCalendar() {
           <p>No events scheduled for this date. Space is available to book or hold.</p>
           <div class="cal-empty-actions">
             <button type="button" class="primary" id="calBookSelectedBtn">${ICONS.plus}Book this date</button>
-            <button type="button" class="quiet blackout-action" id="calBlackoutSelectedBtn"><svg class="icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="4" y1="4" x2="20" y2="20"/></svg>Blackout date</button>
+            <button type="button" class="quiet blackout-action" id="calBlackoutSelectedBtn"><svg class="icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="4" y1="4" x2="20" y2="20"/></svg>Block date</button>
           </div>
         </div>`;
         $('#calBookSelectedBtn').onclick = () => openBooking(selectedDate);
@@ -370,9 +372,9 @@ function renderCalendarAgenda() {
       return `<button class="agenda-card blackout-card" data-detail="${esc(r.id)}">
         <span class="date-tile"><small>${mStr}</small><b>${dayNum}</b></span>
         <div class="agenda-card-details">
-          <div class="agenda-card-client">Blackout Date</div>
+          <div class="agenda-card-client">Blocked Date</div>
           <div class="agenda-card-sub">Blocked by ${esc(r.client)} · ${dayWeek}</div>
-          <div class="agenda-card-status"><span class="badge blackout">Blackout</span></div>
+          <div class="agenda-card-status"><span class="badge blackout">Blocked</span></div>
         </div>
         <span>${ICONS.chevronRight}</span>
       </button>`;
@@ -384,7 +386,7 @@ function renderCalendarAgenda() {
       <span class="date-tile"><small>${mStr}</small><b>${dayNum}</b></span>
       <div class="agenda-card-details">
         <div class="agenda-card-client">${esc(r.client)}</div>
-        <div class="agenda-card-sub">${esc(r.type)} · ${dayWeek} · #${esc(r.contract)}</div>
+        <div class="agenda-card-sub">${esc(typeLabel(r.type))} · ${dayWeek} · #${esc(r.contract)}</div>
         <div class="agenda-card-status ${statusClass}">${statusText}</div>
       </div>
       <span>${ICONS.chevronRight}</span>
@@ -418,20 +420,20 @@ function showUpcoming() {setView('bookings',false);setScope('all');$('#dateRange
 function openDetails(id) {
   const r=records.find(x=>x.id===id);if(!r)return;detailId=id;
   if(r.type==='Blackout'){
-    $('#detailTitle').textContent='Blackout Date';
-    $('#detailContent').innerHTML=`<p class="modal-sub">Blocked out by <b>${esc(r.client)}</b> · ${dateLabel(r.date)} · #${esc(r.contract)}</p><div class="blackout-notice"><b>Date Unavailable</b>This entire day is blocked on the schedule. No public or private events can be booked on this date.</div>${r.notes?`<h3>Reason & Notes</h3><p class="booking-notes">${esc(r.notes)}</p>`:''}`;
+    $('#detailTitle').textContent='Blocked Date';
+    $('#detailContent').innerHTML=`<p class="modal-sub">Blocked by <b>${esc(r.client)}</b> · ${dateLabel(r.date)} · #${esc(r.contract)}</p><div class="blackout-notice"><b>Date Unavailable</b>This entire day is blocked on the schedule. No public or private events can be booked on this date.</div>${r.notes?`<h3>Reason & Notes</h3><p class="booking-notes">${esc(r.notes)}</p>`:''}`;
     $('#detailPayment').hidden=true;
     $('#detailDialog').showModal();
     return;
   }
   $('#detailTitle').textContent=r.client;
   const history=[...(r.openingPaid?[{amount:r.openingPaid,date:r.openingDate,method:r.imported?'Historical payments (combined)':r.openingMethod||'Initial payment',note:r.imported?'Imported as a total. Individual payment dates and methods were not available.':'Initial payment at booking'}]:[]),...r.payments];
-  $('#detailContent').innerHTML=`<p class="modal-sub">${esc(r.type)} · ${dateLabel(r.date)} · #${esc(r.contract)}</p>${r.phone?`<p><a class="phone-link" href="tel:${esc(r.phone.replace(/[^+\d]/g,''))}">Call ${esc(r.phone)}</a></p>`:''}<div class="payment-summary"><span>Agreed price<b>${r.total==null?'Not entered':money(r.total)}</b></span><span>Paid<b>${money(r.paid)}</b></span><span>Still due<b>${r.total==null?'Review price':money(balance(r))}</b></span></div>${r.total==null?`<p class="review-note">The agreed price was blank in the original ledger. Payments are preserved, but the balance and any credit are unknown. Confirm the contract, cancellation, and deposit status, then enter the correct price in Oryan Bookings column G and refresh.</p>`:review(r)?`<p class="review-note">Imported balance needs review. ${r.sheetBalance == null ? 'The original listed balance was missing.' : 'The source listed '+money(r.sheetBalance)+'; the difference from the original cost minus paid is '+money(r.importedDifference)+'.'} New payments do not clear this flag.</p>`:''}${r.total!=null&&r.paid>r.total?`<p class="review-note">Overpayment: ${money(Math.round((r.paid-r.total)*100)/100)}. Check the refundable security deposit.</p>`:''}<dl class="booking-facts"><dt>Balance due</dt><dd>${r.due?dateLabel(r.due):'No due date set'}</dd><dt>Included extras</dt><dd>${(Ledger.extrasList?Ledger.extrasList(r):[r.covers?'Covers+':'',r.projector?'Projector':'',(r.audio||r.sound)?'Audio':'',r.bar?'Bar':'',r.security?'Security':''].filter(Boolean)).join(', ')||'None recorded'}</dd><dt>Security deposit status</dt><dd>${esc(r.deposit||'Unknown')}</dd></dl>${r.notes?`<h3>Notes</h3><p class="booking-notes">${esc(r.notes)}</p>`:''}<h3>Payment history</h3><div class="payment-history">${history.length?history.map(p=>`<div><span><b>${esc(p.method||'Not recorded')}</b><small>${p.date?dateLabel(p.date):'Date not available'}</small>${p.note?`<small>${esc(p.note)}</small>`:''}</span><strong>${money(p.amount)}</strong></div>`).join(''):'<p class="empty-copy">No payments recorded yet.</p>'}</div>`;
+  $('#detailContent').innerHTML=`<p class="modal-sub">${esc(typeLabel(r.type))} · ${dateLabel(r.date)} · #${esc(r.contract)}</p>${r.phone?`<p><a class="phone-link" href="tel:${esc(r.phone.replace(/[^+\d]/g,''))}">Call ${esc(r.phone)}</a></p>`:''}<div class="payment-summary"><span>Agreed price<b>${r.total==null?'Not entered':money(r.total)}</b></span><span>Paid<b>${money(r.paid)}</b></span><span>Still due<b>${r.total==null?'Review price':money(balance(r))}</b></span></div>${r.total==null?`<p class="review-note">The agreed price was blank in the original ledger. Payments are preserved, but the balance and any credit are unknown. Confirm the contract, cancellation, and deposit status, then enter the correct price in Oryan Bookings column G and refresh.</p>`:review(r)?`<p class="review-note">Imported balance needs review. ${r.sheetBalance == null ? 'The original listed balance was missing.' : 'The source listed '+money(r.sheetBalance)+'; the difference from the original cost minus paid is '+money(r.importedDifference)+'.'} New payments do not clear this flag.</p>`:''}${r.total!=null&&r.paid>r.total?`<p class="review-note">Overpayment: ${money(Math.round((r.paid-r.total)*100)/100)}. Check the refundable security deposit.</p>`:''}<dl class="booking-facts"><dt>Balance due</dt><dd>${r.due?dateLabel(r.due):'No due date set'}</dd><dt>Included extras</dt><dd>${(Ledger.extrasList?Ledger.extrasList(r):[r.covers?'Covers+':'',r.projector?'Projector':'',(r.audio||r.sound)?'Audio':'',r.bar?'Bar':'',r.security?'Security':''].filter(Boolean)).join(', ')||'None recorded'}</dd><dt>Security deposit status</dt><dd>${esc(r.deposit||'Unknown')}</dd></dl>${r.notes?`<h3>Notes</h3><p class="booking-notes">${esc(r.notes)}</p>`:''}<h3>Payment history</h3><div class="payment-history">${history.length?history.map(p=>`<div><span><b>${esc(p.method||'Not recorded')}</b><small>${p.date?dateLabel(p.date):'Date not available'}</small>${p.note?`<small>${esc(p.note)}</small>`:''}</span><strong>${money(p.amount)}</strong></div>`).join(''):'<p class="empty-copy">No payments recorded yet.</p>'}</div>`;
   $('#detailPayment').hidden=balance(r)===0;$('#detailDialog').showModal();
 }
 function renderPicker() {
   const q=$('#paymentSearch').value.toLowerCase().trim(), choices=records.filter(r=>balance(r)>0&&[r.client,r.contract,r.phone].join(' ').toLowerCase().includes(q)).sort((a,b)=>a.date.localeCompare(b.date));
-  $('#paymentChoices').innerHTML=choices.slice(0,30).map(r=>`<button class="payment-choice" data-choose="${esc(r.id)}"><span><b>${esc(r.client)}</b><small>${esc(r.type)} · ${dateLabel(r.date)} · #${esc(r.contract)}</small></span><span><strong>${r.total==null?'Review price':money(balance(r))}</strong><small>remaining ${ICONS.chevronRight}</small></span></button>`).join('')||'<p class="empty-copy">No matching bookings with a balance due.</p>';
+  $('#paymentChoices').innerHTML=choices.slice(0,30).map(r=>`<button class="payment-choice" data-choose="${esc(r.id)}"><span><b>${esc(r.client)}</b><small>${esc(typeLabel(r.type))} · ${dateLabel(r.date)} · #${esc(r.contract)}</small></span><span><strong>${r.total==null?'Review price':money(balance(r))}</strong><small>remaining ${ICONS.chevronRight}</small></span></button>`).join('')||'<p class="empty-copy">No matching bookings with a balance due.</p>';
   if(choices.length>30)$('#paymentChoices').innerHTML+='<p class="empty-copy">Showing 30 matches. Search for a name, phone, or contract to narrow the list.</p>';
   $$('[data-choose]').forEach(b=>b.onclick=()=>{$('#pickerDialog').close();openPayment(b.dataset.choose)});
 }
@@ -453,7 +455,7 @@ function bookingInput() {
   $$('[data-initial-payment]').forEach(e=>e.hidden=Number(f.get('paid'))<=0);
   const collisions=records.filter(r=>r.date===f.get('date')).length;
   const isBlackout=records.some(r=>r.date===f.get('date')&&r.type==='Blackout');
-  $('#conflict').textContent=collisions?isBlackout?'Date unavailable: this day has been blacked out. Choose another date.':`Already booked: ${collisions} booking(s) on this date. Choose another date; each booking reserves the whole date.`:'';
+  $('#conflict').textContent=collisions?isBlackout?'Date unavailable: this day has been blocked. Choose another date.':`Already booked: ${collisions} booking(s) on this date. Choose another date; each booking reserves the whole date.`:'';
   $('#bookingNext').disabled=collisions>0||busy;$('#bookingSave').disabled=collisions>0||busy;
 }
 function advanceBooking() {
@@ -487,7 +489,7 @@ async function saveBooking(e) {
 function openPayment(id) {
   const r=records.find(x=>x.id===id);if(!r||balance(r)<=0||needsSignIn())return;paymentId=id;paymentRequest=uuid();dirty=false;
   $('#paymentForm').reset();$('#paymentForm').elements.date.value=today();formError('#paymentError','');
-  $('#paymentGuest').textContent=`${r.client} · ${r.type} · ${dateLabel(r.date)} · #${r.contract}`;
+  $('#paymentGuest').textContent=`${r.client} · ${typeLabel(r.type)} · ${dateLabel(r.date)} · #${r.contract}`;
   $('#paymentSummary').innerHTML=`<span>Agreed price<b>${r.total==null?'Not entered':money(r.total)}</b></span><span>Already paid<b>${money(r.paid)}</b></span><span>Still due<b>${r.total==null?'Review price':money(balance(r))}</b></span>`;
   $('#afterPayment').textContent=money(balance(r));$('#paymentDialog').showModal();$('#paymentForm').elements.amount.focus();
 }
@@ -527,7 +529,7 @@ function blackoutInput() {
   const f = new FormData($('#blackoutForm')), dateVal = f.get('date');
   const existing = dateVal ? records.find(r => r.date === dateVal) : null;
   if (existing) {
-    $('#blackoutConflict').textContent = existing.type === 'Blackout' ? `Already blacked out by ${existing.client} on this date.` : `Already booked by ${existing.client} on this date. Choose an unbooked date.`;
+    $('#blackoutConflict').textContent = existing.type === 'Blackout' ? `Already blocked by ${existing.client} on this date.` : `Already booked by ${existing.client} on this date. Choose an unbooked date.`;
     $('#blackoutSave').disabled = true;
   } else {
     $('#blackoutConflict').textContent = '';
@@ -544,9 +546,9 @@ async function saveBlackout(e) {
   const dateVal = f.get('date');
   const reason = f.get('reason');
   const notes = f.get('notes') ? f.get('notes').trim() : '';
-  if (!blockedBy) { formError('#blackoutError', 'Enter the name of the person blocking out this date.'); return; }
-  if (!dateVal) { formError('#blackoutError', 'Select a date to blackout.'); return; }
-  if (records.some(r => r.date === dateVal)) { formError('#blackoutError', 'This date is already booked or blacked out. Choose another date.'); return; }
+  if (!blockedBy) { formError('#blackoutError', 'Enter the name of the person blocking this date.'); return; }
+  if (!dateVal) { formError('#blackoutError', 'Select a date to block.'); return; }
+  if (records.some(r => r.date === dateVal)) { formError('#blackoutError', 'This date is already booked or blocked. Choose another date.'); return; }
   const combinedNotes = [reason ? `Reason: ${reason}` : '', notes].filter(Boolean).join('\n');
   const payload = {
     client: blockedBy, date: dateVal, type: 'Blackout', total: 0, paid: 0,
@@ -560,7 +562,7 @@ async function saveBlackout(e) {
     if (LIVE) {
       record = (await rpc('createBooking', clean, blackoutRequest)).record;
     } else {
-      if (records.some(r => r.date === clean.date)) throw Error('This date is already booked or blacked out. Choose another date.');
+      if (records.some(r => r.date === clean.date)) throw Error('This date is already booked or blocked. Choose another date.');
       record = {
         ...clean, id: uuid(), openingPaid: 0, openingDate: '', openingMethod: '',
         sheetBalance: null, importedDifference: 0, imported: false, createdAt: new Date().toISOString(), payments: []
@@ -579,7 +581,7 @@ async function saveBlackout(e) {
     } else {
       setView('calendar', false);
     }
-    toast(`Date ${dateLabel(clean.date)} blacked out by ${clean.client}.`);
+    toast(`Date ${dateLabel(clean.date)} blocked by ${clean.client}.`);
   } catch (error) {
     formError('#blackoutError', error.message + (LIVE ? ' If a save was interrupted, retry with the same details to avoid duplicates.' : ''));
   } finally {
@@ -589,7 +591,7 @@ async function saveBlackout(e) {
 function exportCsv() {
   const header=['Contract','Client','Event type','Event date','Total','Paid','Calculated balance','Original listed balance','Deposit status','Due date'];
   const safe=v=>'"'+String(v??'').replace(/^[\s]*[=+@\-]/,"'$&").replace(/"/g,'""')+'"';
-  const csv=[header,...filtered().map(r=>[r.contract,r.client,r.type,r.date,r.total,r.paid,r.total==null?'':balance(r),r.sheetBalance,r.deposit,r.due])].map(row=>row.map(safe).join(',')).join('\r\n');
+  const csv=[header,...filtered().map(r=>[r.contract,r.client,typeLabel(r.type),r.date,r.total,r.paid,r.total==null?'':balance(r),r.sheetBalance,r.deposit,r.due])].map(row=>row.map(safe).join(',')).join('\r\n');
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8;'}));a.download='oryan-ledger.csv';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
 }
 $$('[data-view]').forEach(b=>b.onclick=()=>setView(b.dataset.view));$('#all').onclick=()=>setScope('all');$('#yearButton').onclick=()=>setScope('year');$('#year').onchange=()=>setScope('year');
