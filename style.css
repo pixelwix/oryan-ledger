@@ -150,3 +150,40 @@ aside{overflow-y:auto}
 .primary,.quiet,.segmented,.segmented button,nav button,.mobile-nav #mobileAdd,.mobile-nav button.active{border-radius:999px}
 .quiet,.table-footer .quiet,.actions-cell .quiet{padding-left:16px;padding-right:16px}
 .mobile-nav #mobileAdd,.mobile-nav button.active{border-radius:20px}
+body{padding-top:env(safe-area-inset-top)}
+body::before{content:"";position:fixed;top:0;left:0;right:0;height:env(safe-area-inset-top);background:#151719;z-index:4}
+nav button{padding:10px 14px}nav button.active{background:#302c20;color:#f3df9c;font-weight:600}
+.primary{min-height:40px;padding:10px 20px}
+.segmented{padding:3px}.segmented button{padding:7px 14px;font-size:11px}.segmented .selected{background:#3a3424;color:#f3df9c}
+.year-label select{height:36px;min-height:36px;padding:0 12px;border-radius:999px}
+.badge{padding:4px 10px;font-size:10px;border-radius:999px}
+.quick-actions>button:last-child small{display:block;margin-left:0}
+button:focus-visible{outline-width:2px;outline-offset:2px}
+input:focus-visible,select:focus-visible,textarea:focus-visible{outline:0;border-color:#cfb25d;box-shadow:0 0 0 1px #cfb25d}
+fieldset input:focus-visible{outline:2px solid #cfb25d;outline-offset:2px;box-shadow:none}
+.search input:focus-visible{box-shadow:none}.search:focus-within{border-color:#cfb25d}
+@media(max-width:760px){
+.primary,.intro .primary,.modal-actions .primary{min-height:42px;padding:10px 20px;font-size:13px}
+.quiet,.actions-cell .quiet,.table-footer .quiet,.modal-actions .quiet{min-height:40px;padding:8px 16px;font-size:12px}
+.intro{min-height:0}
+.quick-actions>button,.quick-actions>button:last-child{min-height:68px;padding:14px 16px}
+.segmented button{min-height:32px;padding:6px 14px}
+.mobile-nav{padding:6px 4px max(8px,env(safe-area-inset-bottom))}
+.mobile-nav button,.mobile-nav button.active,.mobile-nav #mobileAdd{flex:1;width:auto;min-width:0;min-height:0;padding:0;background:transparent;border-radius:0;color:#a9a89e}
+.mobile-nav small{font-size:10px;margin-top:2px}
+.mobile-nav button .icon{box-sizing:content-box;padding:4px 16px;margin-bottom:0;border-radius:999px}
+.mobile-nav button.active{color:#f3df9c}.mobile-nav button.active .icon{background:#3a3424}
+.mobile-nav #mobileAdd{color:#e2c681}.mobile-nav #mobileAdd .icon{background:#cfb25d;color:#17191a}
+}
+@media(max-width:760px){.calendar-controls{display:flex;flex-wrap:nowrap;gap:6px}.calendar-controls .quiet,.calendar-controls .cal-jump-btn{flex:0 1 auto;min-width:0;min-height:38px;padding:6px 11px;font-size:11px;white-space:nowrap}.calendar-controls .cal-jump-btn{margin-left:auto}}
+@media(max-width:340px){.calendar-controls{flex-wrap:wrap}}
+.account{width:calc(100% + 16px);margin-left:-8px;margin-right:-8px;padding:8px;border:0;border-radius:12px;background:transparent;color:inherit;text-align:left;font:inherit;font-size:12px;cursor:pointer}
+.account:hover{background:#2a2a26}.account>span{min-width:0}
+.account b,.account-chip b{display:grid;place-items:center;flex-shrink:0;width:36px;height:36px;padding:0;border-radius:50%;background:#3a3528;color:#d8c898;font-size:13px}
+#accountName{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.account-chip{display:none}
+#accountDialog{max-width:420px}
+.account-email{margin:18px 0 6px;font-size:14px;color:#f1efea;overflow-wrap:anywhere}
+.account-note{margin:8px 0 0;font-size:12px;line-height:1.6;color:#aaa99f}
+#signOut[hidden]{display:none}
+@media(max-width:760px){.preview-dot{margin-left:auto}.account-chip{display:flex;align-items:center;justify-content:center;flex-shrink:0;width:44px;height:44px;padding:0;border:0;background:transparent;border-radius:50%}.account-chip b{width:32px;height:32px;font-size:12px}}

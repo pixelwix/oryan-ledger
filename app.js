@@ -35,6 +35,7 @@ function signIn(prompt) {
   const state = uuid(); store(sessionStorage, 'oryan-auth-state', state);
   const params = new URLSearchParams({client_id:API.clientId, redirect_uri:location.origin + location.pathname, response_type:'token', scope:API.scopes.join(' '), include_granted_scopes:'true', state});
   const hint = read(localStorage, 'oryan-email'); if (hint) params.set('login_hint', hint);
+  prompt = prompt || (read(localStorage, 'oryan-signed-out') ? 'select_account' : '');
   if (prompt) params.set('prompt', prompt);
   location.assign('https://accounts.google.com/o/oauth2/v2/auth?' + params);
 }
@@ -45,6 +46,7 @@ function captureToken() {
   if (h.get('error')) return 'Google sign-in did not finish. Sign in to continue.';
   if (!state || h.get('state') !== state) return 'Sign-in could not be verified. Sign in again.';
   store(sessionStorage, 'oryan-auth', JSON.stringify({token:h.get('access_token'), expires:Date.now() + Number(h.get('expires_in') || 3600) * 1000}));
+  store(localStorage, 'oryan-signed-out');
   return '';
 }
 // Re-sign in before a form opens, so a long-open session never loses a half-filled form to an expired token.
@@ -62,6 +64,25 @@ async function apiRun(name, args) {
 function rpc(name, ...args) {
   if (API) return apiRun(name, args);
   return new Promise((resolve, reject) => google.script.run.withSuccessHandler(resolve).withFailureHandler(e => reject(Error(e.message || 'Could not reach Google Sheets. Try again.')))[name](...args));
+}
+let accountEmail = API ? read(localStorage, 'oryan-email') || '' : '';
+function renderAccount() {
+  $$('.account-initial').forEach(e=>e.textContent=accountEmail?accountEmail[0].toUpperCase():'O');
+  $('#accountName').textContent=accountEmail||'O’Ryan team';$('#accountName').title=accountEmail;
+}
+function openAccount() {
+  const signedIn=LIVE&&accountEmail&&(!API||storedToken(0));
+  $('#accountTitle').textContent=!LIVE?'Demo mode':signedIn?'Signed in':'Not signed in';
+  $('#accountEmail').textContent=signedIn?accountEmail:'';$('#accountEmail').hidden=!signedIn;
+  $('#accountNote').textContent=!LIVE?'This sample is not tied to an account.':!signedIn?'Sign in with Google to open the ledger.':API?'Sign out removes ledger access on this device. Your Google account stays signed in to this browser, so on a shared computer sign out of Google too.':'You are signed in through Google. To switch accounts, sign out of Google in this browser.';
+  $('#accountVersion').textContent=$('.account small').textContent;
+  $('#signOut').hidden=!(API&&signedIn);
+  $('#accountDialog').showModal();
+}
+// Ends this device's ledger session. Google's own session and the app's consent are left alone, so the next sign-in only has to pick an account.
+function signOut() {
+  store(sessionStorage,'oryan-auth');store(localStorage,'oryan-email');store(localStorage,'oryan-signed-out','1');
+  dirty=false;location.reload();
 }
 function normalize(r) {
   const openingPaid = r.openingPaid ?? Math.round((r.paid - (r.payments || []).reduce((n,p) => n+p.amount,0))*100)/100;
@@ -93,7 +114,7 @@ async function load() {
   ['#newBooking','#mobileAdd','#quickPayment'].forEach(s=>$(s).disabled=true);
   try {
     if (LIVE) {
-      const response=await rpc('getLedger'); records=response.records.map(normalize); serverToday=response.today; if(API&&response.actor)store(localStorage,'oryan-email',response.actor);
+      const response=await rpc('getLedger'); records=response.records.map(normalize); serverToday=response.today; if(API&&response.actor)store(localStorage,'oryan-email',response.actor);accountEmail=response.actor||'';renderAccount();
       $('#modeBanner').innerHTML=`<span>${ICONS.check}</span><div><b>Connected to Google Sheets.</b> Bookings and payments save to the app tabs. The original ledger is preserved.</div>`;
       $('#reset').hidden=true; $$('.save-destination').forEach(e=>e.textContent='Saved to Google Sheets');
     } else {
@@ -585,6 +606,7 @@ $('#payRemaining').onclick=()=>{const r=records.find(x=>x.id===paymentId);$('#pa
 $('#detailClose').onclick=()=>$('#detailDialog').close();$('#detailPayment').onclick=()=>{$('#detailDialog').close();openPayment(detailId)};
 $$('.close').forEach(b=>b.onclick=()=>closeDialog(b.closest('dialog')));
 $$('dialog').forEach(d=>d.addEventListener('cancel',e=>{e.preventDefault();closeDialog(d)}));
+$('#accountButton').onclick=openAccount;$('#accountChip').onclick=openAccount;$('#accountDone').onclick=()=>$('#accountDialog').close();$('#signOut').onclick=signOut;renderAccount();
 $('#export').onclick=exportCsv;$('#reset').onclick=()=>{if(!confirm('Reset changes made in this demo? Your Google Sheet is unchanged.'))return;try{deviceSave(structuredClone(SEED).map(normalize));load();toast('Anonymous demo restored.');}catch(e){toast(e.message)}};
 window.addEventListener('beforeunload',e=>{if(dirty){e.preventDefault();e.returnValue='';}});
 setView('overview',false);
