@@ -422,14 +422,14 @@ function openDetails(id) {
   if(r.type==='Blackout'){
     $('#detailTitle').textContent='Blocked Date';
     $('#detailContent').innerHTML=`<p class="modal-sub">Blocked by <b>${esc(r.client)}</b> · ${dateLabel(r.date)} · #${esc(r.contract)}</p><div class="blackout-notice"><b>Date Unavailable</b>This entire day is blocked on the schedule. No public or private events can be booked on this date.</div>${r.notes?`<h3>Reason & Notes</h3><p class="booking-notes">${esc(r.notes)}</p>`:''}`;
-    $('#detailPayment').hidden=true;
+    $('#detailPayment').hidden=true;$('#detailContract').hidden=true;
     $('#detailDialog').showModal();
     return;
   }
   $('#detailTitle').textContent=r.client;
   const history=[...(r.openingPaid?[{amount:r.openingPaid,date:r.openingDate,method:r.imported?'Historical payments (combined)':r.openingMethod||'Initial payment',note:r.imported?'Imported as a total. Individual payment dates and methods were not available.':'Initial payment at booking'}]:[]),...r.payments];
   $('#detailContent').innerHTML=`<p class="modal-sub">${esc(typeLabel(r.type))} · ${dateLabel(r.date)} · #${esc(r.contract)}</p>${r.phone?`<p><a class="phone-link" href="tel:${esc(r.phone.replace(/[^+\d]/g,''))}">Call ${esc(r.phone)}</a></p>`:''}<div class="payment-summary"><span>Agreed price<b>${r.total==null?'Not entered':money(r.total)}</b></span><span>Paid<b>${money(r.paid)}</b></span><span>Still due<b>${r.total==null?'Review price':money(balance(r))}</b></span></div>${r.total==null?`<p class="review-note">The agreed price was blank in the original ledger. Payments are preserved, but the balance and any credit are unknown. Confirm the contract, cancellation, and deposit status, then enter the correct price in Oryan Bookings column G and refresh.</p>`:review(r)?`<p class="review-note">Imported balance needs review. ${r.sheetBalance == null ? 'The original listed balance was missing.' : 'The source listed '+money(r.sheetBalance)+'; the difference from the original cost minus paid is '+money(r.importedDifference)+'.'} New payments do not clear this flag.</p>`:''}${r.total!=null&&r.paid>r.total?`<p class="review-note">Overpayment: ${money(Math.round((r.paid-r.total)*100)/100)}. Check the refundable security deposit.</p>`:''}<dl class="booking-facts"><dt>Balance due</dt><dd>${r.due?dateLabel(r.due):'No due date set'}</dd><dt>Included extras</dt><dd>${(Ledger.extrasList?Ledger.extrasList(r):[r.covers?'Covers+':'',r.projector?'Projector':'',(r.audio||r.sound)?'Audio':'',r.bar?'Bar':'',r.security?'Security':''].filter(Boolean)).join(', ')||'None recorded'}</dd><dt>Security deposit status</dt><dd>${esc(r.deposit||'Unknown')}</dd></dl>${r.notes?`<h3>Notes</h3><p class="booking-notes">${esc(r.notes)}</p>`:''}<h3>Payment history</h3><div class="payment-history">${history.length?history.map(p=>`<div><span><b>${esc(p.method||'Not recorded')}</b><small>${p.date?dateLabel(p.date):'Date not available'}</small>${p.note?`<small>${esc(p.note)}</small>`:''}</span><strong>${money(p.amount)}</strong></div>`).join(''):'<p class="empty-copy">No payments recorded yet.</p>'}</div>`;
-  $('#detailPayment').hidden=balance(r)===0;$('#detailDialog').showModal();
+  $('#detailContract').hidden=!LIVE;$('#detailPayment').hidden=balance(r)===0;$('#detailDialog').showModal();
 }
 function renderPicker() {
   const q=$('#paymentSearch').value.toLowerCase().trim(), choices=records.filter(r=>balance(r)>0&&[r.client,r.contract,r.phone].join(' ').toLowerCase().includes(q)).sort((a,b)=>a.date.localeCompare(b.date));
@@ -437,8 +437,72 @@ function renderPicker() {
   if(choices.length>30)$('#paymentChoices').innerHTML+='<p class="empty-copy">Showing 30 matches. Search for a name, phone, or contract to narrow the list.</p>';
   $$('[data-choose]').forEach(b=>b.onclick=()=>{$('#pickerDialog').close();openPayment(b.dataset.choose)});
 }
+let contractId = null, contractPdf = null, contractUrl = null, contractInitialChanged = false;
+function contractDeadline(date) { const d=new Date(date+'T12:00:00Z');d.setUTCDate(d.getUTCDate()-14);return d.toISOString().slice(0,10); }
+function clearContractPdf() {
+  contractPdf=null;
+  if(contractUrl){URL.revokeObjectURL(contractUrl);contractUrl=null;}
+}
+function contractSchedule() {
+  const r=records.find(x=>x.id===contractId);if(!r)return;
+  const f=$('#contractForm').elements, total=(r.total==null?Number(f.missingPrice.value):r.total)+(r.bar?100:0);
+  if(!contractInitialChanged)f.initial.value=r.total==null&&!f.missingPrice.value?'':(Math.round(total*100/2)/100).toFixed(2);
+  const remaining=Math.round((total-Number(f.initial.value))*100)/100;
+  $('#contractSchedule').textContent=`${r.bar?`Contract total: ${money(total)}, including Bar $100. The ledger price is not changed. `:''}Remaining scheduled amount: ${Number.isFinite(remaining)&&remaining>=0?money(remaining):'Review amounts'}. Due ${dateLabel(contractDeadline(r.date))}. This is the contract schedule, not the unpaid ledger balance.`;
+}
+function openContract() {
+  const r=records.find(x=>x.id===detailId);if(!LIVE||!r||r.type==='Blackout'||needsSignIn())return;
+  contractId=r.id;clearContractPdf();contractInitialChanged=false;dirty=false;
+  const form=$('#contractForm');form.reset();form.elements.phone.value=r.phone.slice(0,40);
+  $('#contractGuest').textContent=`${r.client} · ${dateLabel(r.date)} · #${r.contract}`;
+  $('#contractSummary').innerHTML=`<span>Agreed price<b>${r.total==null?'Not entered':money(r.total)}</b></span><span>Recorded payments<b>${money(r.paid)}</b></span><span>Selected extras<b>${esc(Ledger.extrasList(r).join(', ')||'None')}</b></span>`;
+  $('#contractPriceLabel').hidden=r.total!=null;$('#contractPriceNote').hidden=r.total!=null;form.elements.missingPrice.required=r.total==null;
+  $('#contractSecurityLabel').hidden=!r.security;form.elements.securityHours.required=r.security;
+  $('#contractConfirmLabel').hidden=contractDeadline(r.date)>=today();
+  $('#contractInputs').hidden=false;$('#contractFile').hidden=true;$('#contractShare').hidden=true;$('#contractCreate').hidden=false;$('#contractCreate').textContent='Create PDF';$('#contractCancel').textContent='Cancel';
+  formError('#contractError','');contractSchedule();$('#detailDialog').close();$('#contractDialog').showModal();form.elements.start.focus();
+}
+function contractInput(event) {dirty=true;formError('#contractError','');if(event.target.name==='initial')contractInitialChanged=true;contractSchedule();}
+async function createContractPdf(event) {
+  event.preventDefault();if(busy)return;const form=event.target;formError('#contractError','');
+  try {
+    const r=records.find(x=>x.id===contractId);if(!r)throw Error('Choose a booking.');
+    const f=form.elements, values=Object.fromEntries(new FormData(form));
+    values.confirmSchedule=f.confirmSchedule.checked;
+    if(!f.start.value||!f.end.value||f.start.value===f.end.value)throw Error('Enter different rental start and end times.');
+    const total=(r.total==null?Ledger.cents(f.missingPrice.value):Ledger.cents(r.total))+(r.bar?10000:0), initial=Ledger.cents(f.initial.value);
+    if(initial>total)throw Error('The initial amount cannot exceed the agreed price.');
+    if(r.security&&(!/^\d{1,2}(\.\d{1,2})?$/.test(f.securityHours.value)||Number(f.securityHours.value)<=0||Number(f.securityHours.value)>24))throw Error('Enter security hours between 0 and 24.');
+    if(contractDeadline(r.date)<today()&&!values.confirmSchedule)throw Error('Confirm the payment schedule for this event.');
+    setBusy(true,form);$('#contractCreate').textContent='Creating…';
+    const inputs=[...form.querySelectorAll('input,select,textarea')];inputs.forEach(e=>e.disabled=true);
+    let result;
+    try {result=await rpc('createContract',contractId,values);} finally {inputs.forEach(e=>e.disabled=false);}
+    if(!result||typeof result.base64!=='string'||result.base64.length>20000000||typeof result.filename!=='string')throw Error('The PDF could not be opened. Try again.');
+    const bytes=Uint8Array.from(atob(result.base64),c=>c.charCodeAt(0));
+    if(new TextDecoder().decode(bytes.slice(0,5))!=='%PDF-')throw Error('The PDF could not be opened. Try again.');
+    clearContractPdf();contractPdf=new File([bytes],result.filename,{type:'application/pdf'});
+    $('#contractInputs').hidden=true;$('#contractFile').textContent=result.filename;$('#contractFile').hidden=false;$('#contractCreate').hidden=true;$('#contractShare').hidden=false;$('#contractCancel').textContent='Done';dirty=false;
+  }catch(error){formError('#contractError',error.message);}
+  finally{setBusy(false,form);$('#contractCreate').textContent='Create PDF';}
+}
+async function shareContractPdf() {
+  if(!contractPdf||busy)return;formError('#contractError','');
+  try {
+    if(navigator.canShare?.({files:[contractPdf]})) {
+      await navigator.share({files:[contractPdf]});
+    } else {
+      if(contractUrl)URL.revokeObjectURL(contractUrl);
+      contractUrl=URL.createObjectURL(contractPdf);
+      const a=document.createElement('a');a.href=contractUrl;a.download=contractPdf.name;document.body.append(a);a.click();a.remove();
+      const url=contractUrl;setTimeout(()=>{URL.revokeObjectURL(url);if(contractUrl===url)contractUrl=null;},60000);
+      if(window.top!==window.self)formError('#contractError','If the embedded page blocks the download, open ledger.oryaneventcenter.com to prepare and save the PDF.');
+    }
+  }catch(error){if(error.name!=='AbortError')formError('#contractError','Could not share or save the PDF. Try again, or open ledger.oryaneventcenter.com if this page is embedded.');}
+}
+
 function openPicker() {if(!ready||needsSignIn())return;$('#paymentSearch').value='';renderPicker();$('#pickerDialog').showModal();$('#paymentSearch').focus();}
-function closeDialog(dialog) {if(busy)return;if(dirty&&['bookingDialog','paymentDialog','blackoutDialog'].includes(dialog.id)&&!confirm('Discard the unsaved changes in this form?'))return;dialog.close();dirty=false;}
+function closeDialog(dialog) {if(busy)return;if(dirty&&['bookingDialog','paymentDialog','blackoutDialog','contractDialog'].includes(dialog.id)&&!confirm('Discard the unsaved changes in this form?'))return;dialog.close();dirty=false;}
 function showStep(n) {
   step=n; $$('[data-step]').forEach(e=>e.hidden=+e.dataset.step!==n);$('#stepOne').classList.toggle('current',n===1);$('#stepTwo').classList.toggle('current',n===2);
   $('#bookingNext').hidden=n!==1;$('#bookingSave').hidden=n!==2;$('#bookingBack').innerHTML=n===1?'Cancel':`${ICONS.chevronLeft} Back`;formError('#bookingError','');
@@ -605,6 +669,7 @@ if($('#blackoutCancel'))$('#blackoutCancel').onclick=()=>closeDialog($('#blackou
 $('#paymentForm').onsubmit=savePayment;$('#paymentSearch').oninput=renderPicker;
 $('#paymentForm').oninput=()=>{dirty=true;const r=records.find(x=>x.id===paymentId),amount=Number($('#paymentForm').elements.amount.value);$('#afterPayment').textContent=money(Math.round((balance(r)-amount)*100)/100);};
 $('#payRemaining').onclick=()=>{const r=records.find(x=>x.id===paymentId);$('#paymentForm').elements.amount.value=balance(r).toFixed(2);$('#paymentForm').dispatchEvent(new Event('input'));};
+$('#detailContract').onclick=openContract;$('#contractForm').oninput=contractInput;$('#contractForm').onsubmit=createContractPdf;$('#contractCancel').onclick=()=>closeDialog($('#contractDialog'));$('#contractShare').onclick=shareContractPdf;$('#contractDialog').addEventListener('close',()=>{clearContractPdf();$('#contractForm').reset();contractId=null;});
 $('#detailClose').onclick=()=>$('#detailDialog').close();$('#detailPayment').onclick=()=>{$('#detailDialog').close();openPayment(detailId)};
 $$('.close').forEach(b=>b.onclick=()=>closeDialog(b.closest('dialog')));
 $$('dialog').forEach(d=>d.addEventListener('cancel',e=>{e.preventDefault();closeDialog(d)}));

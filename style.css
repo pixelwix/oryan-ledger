@@ -188,3 +188,7 @@ fieldset input:focus-visible{outline:2px solid #cfb25d;outline-offset:2px;box-sh
 #signOut[hidden]{display:none}
 @media(max-width:760px){.preview-dot{margin-left:auto}.account-chip{display:flex;align-items:center;justify-content:center;flex-shrink:0;width:44px;height:44px;padding:0;border:0;background:transparent;border-radius:50%}.account-chip b{width:32px;height:32px;font-size:12px}}
 @media(max-width:760px){input:not([type=checkbox]):not([type=radio]),select,textarea,.search input,.filters select,.year-label select{font-size:16px}}
+
+/* Fit the new action in the existing gap on phones without moving Close or Record payment. */
+@media(max-width:760px){#detailContract{max-width:90px;padding:0 6px}}
+#contractSummary span:last-child b{font-size:14px;line-height:1.35;color:inherit}
