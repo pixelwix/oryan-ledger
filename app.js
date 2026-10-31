@@ -479,10 +479,10 @@ function clearContractPdf() {
 }
 function contractSchedule() {
   const r=records.find(x=>x.id===contractId);if(!r)return;
-  const f=$('#contractForm').elements, total=(r.total==null?Number(f.missingPrice.value):r.total)+(r.bar?100:0);
+  const f=$('#contractForm').elements, total=r.total==null?Number(f.missingPrice.value):r.total;
   if(!contractInitialChanged)f.initial.value=r.total==null&&!f.missingPrice.value?'':(Math.round(total*100/2)/100).toFixed(2);
   const remaining=Math.round((total-Number(f.initial.value))*100)/100;
-  $('#contractSchedule').textContent=`${r.bar?`Contract total: ${money(total)}, including Bar $100. The ledger price is not changed. `:''}Remaining scheduled amount: ${Number.isFinite(remaining)&&remaining>=0?money(remaining):'Review amounts'}. Due ${dateLabel(contractDeadline(r.date))}. This is the contract schedule, not the unpaid ledger balance.`;
+  $('#contractSchedule').textContent=`Remaining scheduled amount: ${Number.isFinite(remaining)&&remaining>=0?money(remaining):'Review amounts'}. Due ${dateLabel(contractDeadline(r.date))}. This is the contract schedule, not the unpaid ledger balance.`;
 }
 function openContract() {
   const r=records.find(x=>x.id===detailId);if(!LIVE||!r||r.cancelled||r.type==='Blackout'||needsSignIn())return;
@@ -504,7 +504,7 @@ async function createContractPdf(event) {
     const f=form.elements, values=Object.fromEntries(new FormData(form));
     values.confirmSchedule=f.confirmSchedule.checked;
     if(!f.start.value||!f.end.value||f.start.value===f.end.value)throw Error('Enter different rental start and end times.');
-    const total=(r.total==null?Ledger.cents(f.missingPrice.value):Ledger.cents(r.total))+(r.bar?10000:0), initial=Ledger.cents(f.initial.value);
+    const total=r.total==null?Ledger.cents(f.missingPrice.value):Ledger.cents(r.total), initial=Ledger.cents(f.initial.value);
     if(initial>total)throw Error('The initial amount cannot exceed the agreed price.');
     if(r.security&&(!/^\d{1,2}(\.\d{1,2})?$/.test(f.securityHours.value)||Number(f.securityHours.value)<=0||Number(f.securityHours.value)>24))throw Error('Enter security hours between 0 and 24.');
     if(contractDeadline(r.date)<today()&&!values.confirmSchedule)throw Error('Confirm the payment schedule for this event.');
