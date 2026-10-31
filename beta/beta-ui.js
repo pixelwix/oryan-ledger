@@ -35,6 +35,7 @@ const BetaUI = (() => {
  }
  function details(r){
   tools(r);
+  $$('#detailContent .review-note').filter(n=>n.textContent.includes('Oryan Bookings column G')).forEach(n=>n.textContent='The agreed event price was missing in the import. Use Manage booking to reconcile it against the original documents. Historical payments are preserved.');
   if(!r.cancelled&&(r.total==null||Ledger.review(r))){const n=$('#detailContent .review-note');if(n)n.textContent='This booking needs reconciliation. Use Manage booking to confirm the agreed price and historical paid total against source documents. Original imported figures are preserved.';}
   if(r.cancelled&&r.type!=='Blackout'){
    $('#detailPayment').hidden=balance(r)<=0;
