@@ -9,13 +9,14 @@ const BetaContracts = (() => {
   let out='%PDF-1.4\n',offsets=[0];objects.forEach((o,i)=>{offsets.push(out.length);out+=(i+1)+' 0 obj\n'+o+'\nendobj\n';});
   const start=out.length;out+='xref\n0 6\n0000000000 65535 f \n'+offsets.slice(1).map(n=>String(n).padStart(10,'0')+' 00000 n \n').join('')+'trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n'+start+'\n%%EOF\n';return btoa(out);
  }
+ const clock=t=>{const [h,m]=t.split(':').map(Number);return (h%12||12)+':'+String(m).padStart(2,'0')+(h<12?' AM':' PM');};
  function create(r,v,id){
   if(!r||r.cancelled||r.type==='Blackout')throw Error('Choose an active event booking.');
   const total=r.total==null?Ledger.cents(v.missingPrice):Ledger.cents(r.total),initial=Ledger.cents(v.initial);
   if(initial>total)throw Error('Initial amount exceeds agreed price.');
   const copy={id,bookingId:r.id,createdBy:'Beta tester',createdAt:new Date().toISOString(),totalCents:total,templateVersion,filename:'Oryan-beta-contract-'+id+'.pdf'};
   const rates=Ledger.pricing(r.date).rates, dollars=cents=>'$'+(cents/100).toFixed(0);
-  copy.base64=pdf(['BETA - FICTIONAL CONTRACT SAMPLE','Summary only - no private contract terms or signatures',r.client,'Booking: '+r.contract,'Event date: '+r.date,'Rental: 10:00 AM to 12:00 AM','Agreed event total: $'+(total/100).toFixed(2),'Initial scheduled: $'+(initial/100).toFixed(2),'Remaining scheduled: $'+((total-initial)/100).toFixed(2),'Extras: '+Ledger.extrasList(r).filter(x=>x!=='Security').join(', '),'Bar: included free','Security: '+(r.security?v.securityHours+' hours at '+dollars(rates.security)+'/hour, separate':'not selected'),'Hall rates: Fri/Sat '+dollars(rates.weekend)+'; Sun '+dollars(rates.sunday)+'; Mon-Thu '+dollars(rates.weekday),'Federal holidays (actual date): '+dollars(rates.holiday),'Covers '+dollars(rates.covers)+'; Sound '+dollars(rates.audio)+'; Projector '+dollars(rates.projector),'Created by: '+copy.createdBy,'Created: '+copy.createdAt,'Template: '+templateVersion]);return copy;
+  copy.base64=pdf(['BETA - FICTIONAL CONTRACT SAMPLE','Summary only - no private contract terms or signatures',r.client,'Booking: '+r.contract,'Event date: '+r.date,'Rental: '+clock(v.start||'10:00')+' to '+clock(v.end||'00:00'),'Agreed event total: $'+(total/100).toFixed(2),'Initial scheduled: $'+(initial/100).toFixed(2),'Remaining scheduled: $'+((total-initial)/100).toFixed(2),'Extras: '+Ledger.extrasList(r).filter(x=>x!=='Security').join(', '),'Bar: included free','Security: '+(r.security?v.securityHours+' hours at '+dollars(rates.security)+'/hour, separate':'not selected'),'Hall rates: Fri/Sat '+dollars(rates.weekend)+'; Sun '+dollars(rates.sunday)+'; Mon-Thu '+dollars(rates.weekday),'Federal holidays (actual date): '+dollars(rates.holiday),'Covers '+dollars(rates.covers)+'; Sound '+dollars(rates.audio)+'; Projector '+dollars(rates.projector),'Created by: '+copy.createdBy,'Created: '+copy.createdAt,'Template: '+templateVersion]);return copy;
  }
  async function save(copy){
   if(!navigator.locks)throw Error('This browser cannot safely save copies. Download the PDF and use a current browser.');

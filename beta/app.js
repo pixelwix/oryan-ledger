@@ -504,7 +504,7 @@ async function createContractPdf(event) {
     const r=records.find(x=>x.id===contractId);if(!r)throw Error('Choose a booking.');
     const f=form.elements, values=Object.fromEntries(new FormData(form));
     values.confirmSchedule=f.confirmSchedule.checked;
-    values.start='10:00';values.end='00:00';
+    if(!f.start.value||!f.end.value||f.start.value===f.end.value)throw Error('Enter different rental start and end times.');
     const total=r.total==null?Ledger.cents(f.missingPrice.value):Ledger.cents(r.total), initial=Ledger.cents(f.initial.value);
     if(initial>total)throw Error('The initial amount cannot exceed the agreed price.');
     if(r.security&&(!/^\d{1,2}(\.\d{1,2})?$/.test(f.securityHours.value)||Number(f.securityHours.value)<=0||Number(f.securityHours.value)>24))throw Error('Enter security hours between 0 and 24.');
