@@ -19,6 +19,15 @@ const BetaClient = (() => {
    if(remote)return google('getBetaLedger',[]);
    state=readState();return {records:clone(state.records),actor:'Beta tester',today:new Intl.DateTimeFormat('en-CA',{year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date()),summary:BetaLedger.summary(state.records)};
   }
+  if(['createContract','listContracts','getContract','saveContractCopy'].includes(name)){
+   if(remote)throw Error('Saved contract preview is browser-local only. Google storage is not deployed.');
+   if(name==='listContracts')return BetaContracts.list(args[0]);
+   if(name==='getContract')return BetaContracts.get(args[1],args[0]);
+   if(name==='saveContractCopy'){const {saveError,...copy}=args[0];return BetaContracts.save(copy);}
+   const r=readState().records.find(r=>r.id===args[0]);
+   const copy=BetaContracts.create(r,args[1],args[2]);
+   try{await BetaContracts.save(copy);return copy;}catch(error){return {...copy,saveError:error.message};}
+  }
   if(name==='betaCommand')return command(args[0],args[1]);
   if(name==='createBooking')return command({type:'create',values:args[0]},args[1]);
   const r=records.find(r=>r.id===(name==='recordPayment'?args[0].bookingId:args[0]));if(!r)throw Error('Choose a booking.');
@@ -26,5 +35,5 @@ const BetaClient = (() => {
   if(name==='cancelBooking')return command({type:'cancel',bookingId:r.id,expectedRevision:r.revision,values:{reason:args[1]||'Cancelled by beta tester'}},args[2]||uuid());
   throw Error('This action is not available in the isolated beta.');
  }
- return {rpc,reset:()=>{if(remote)throw Error('Reset is only available for local fictional data.');localStorage.removeItem(key);},remote};
+ return {rpc,reset:()=>{if(remote)throw Error('Reset is only available for local fictional data.');localStorage.removeItem(key);BetaContracts.reset();},remote};
 })();

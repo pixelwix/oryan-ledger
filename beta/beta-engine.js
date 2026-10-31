@@ -42,7 +42,7 @@ const BetaLedger = (() => {
       allowed(v,['client','phone','contract','type','date','total','paid','paymentDate','method','due','deposit','covers','projector','audio','sound','bar','security','notes']);
       const clean=Ledger.booking(v);if(clean.type==='Blackout'&&clean.total!==0)throw Error('Blocked dates do not have a price.');checkDate(next.records,{id:meta.id},clean.date);
       if(clean.contract&&next.records.some(b=>b.contract.toLowerCase()===clean.contract.toLowerCase()))throw Error('That contract number is already in the ledger.');
-      r=derive({...clean,id:meta.id,contract:clean.contract||'B-'+meta.id.slice(0,8).toUpperCase(),openingPaid:clean.paid,openingDate:clean.paymentDate,openingMethod:clean.method,imported:false,sheetBalance:null,importedDifference:0,createdAt:meta.at,payments:[],revision:0});
+      r=derive({...clean,id:meta.id,contract:clean.contract||'O-'+meta.id.slice(0,8).toUpperCase(),openingPaid:clean.paid,openingDate:clean.paymentDate,openingMethod:clean.method,imported:false,sheetBalance:null,importedDifference:0,createdAt:meta.at,payments:[],revision:0});
       next.records.push(r);
     } else {
       if(!r)throw Error('That booking is no longer available. Refresh the beta.');
@@ -53,7 +53,7 @@ const BetaLedger = (() => {
           allowed(v,['client','phone','contract','type','date','total','due','covers','projector','audio','bar','security','notes','reason']);reason(v.reason);
           if(r.cancelled)throw Error('Restore the booking before editing it.');
           if(r.type==='Blackout'&&v.type!=='Blackout'||r.type!=='Blackout'&&v.type==='Blackout')throw Error('Release or create a blocked date separately.');
-          const clean=Ledger.booking({...v,total:v.total===''?0:v.total,paid:0});if(clean.type==='Blackout'&&clean.total!==0)throw Error('Blocked dates do not have a price.');checkDate(next.records,r,clean.date);
+          const clean=Ledger.booking({...v,total:v.total===''?0:v.total,paid:0});if(clean.type==='Blackout'&&clean.total!==0)throw Error('Blocked dates do not have a price.');if(clean.date!==r.date)checkDate(next.records,r,clean.date);
           if(!clean.contract||next.records.some(b=>b.id!==r.id&&b.contract.toLowerCase()===clean.contract.toLowerCase()))throw Error('Enter a unique contract number.');
           ['client','phone','contract','type','date','due','covers','projector','audio','sound','bar','security','notes'].forEach(k=>r[k]=clean[k]);
           r.total=v.total===''?null:clean.total;
