@@ -81,7 +81,7 @@ const BetaFeatures = (() => {
   form.addEventListener('input',e=>{if(e.target.name==='total')manual=true;priceNote(form,'#betaPriceNote',!manual);bookingInput();});
   $('#betaPriceUse').onclick=()=>{manual=false;priceNote(form,'#betaPriceNote',true);bookingInput();};
   const originalOpen=openBooking;openBooking=function(...args){originalOpen(...args);priceNote(form,'#betaPriceNote',true);bookingInput();dirty=false;};$('#newBooking').onclick=openBooking;$('#mobileAdd').onclick=openBooking;
-  form.querySelector('fieldset legend').textContent='Extras added to calculated price';
+  form.elements.covers.closest('fieldset').querySelector('legend').textContent='Extras added to calculated price';
   const names={covers:'Table Covers +$200',audio:'Sound System +$100',projector:'Projector +$100',bar:'Bar · included free',security:'Security · $30/hour separately'};
   for(const [name,title] of Object.entries(names))form.elements[name].parentElement.lastChild.textContent=' '+title;
   $('#liveBalance').closest('.balance-preview').nextElementSibling.textContent='Calculated prices include selected paid extras. A typed price is kept until you choose Use calculated price. Security service and refundable deposits stay separate.';

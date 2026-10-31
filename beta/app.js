@@ -502,7 +502,7 @@ async function createContractPdf(event) {
   event.preventDefault();if(busy)return;const form=event.target;formError('#contractError','');
   try {
     const r=records.find(x=>x.id===contractId);if(!r)throw Error('Choose a booking.');
-    const f=form.elements, values=Object.fromEntries(new FormData(form));
+    const f=form.elements, values=Object.fromEntries(new FormData(form));values.methods=new FormData(form).getAll('method');delete values.method;
     values.confirmSchedule=f.confirmSchedule.checked;
     if(!f.start.value||!f.end.value||f.start.value===f.end.value)throw Error('Enter different rental start and end times.');
     const total=r.total==null?Ledger.cents(f.missingPrice.value):Ledger.cents(r.total), initial=Ledger.cents(f.initial.value);
@@ -588,7 +588,7 @@ async function saveBooking(e) {
       record={...clean,id:uuid(),contract:clean.contract||'O-'+bookingRequest.slice(0,8).toUpperCase(),openingPaid:clean.paid,openingDate:clean.paymentDate,openingMethod:clean.method,sheetBalance:null,importedDifference:0,imported:false,createdAt:new Date().toISOString(),payments:[]};
       deviceSave([...records,record]);
     }
-    records.push(normalize(record));dirty=false;$('#bookingDialog').close();updateYears();scope='all';syncScope();setView('bookings',false);$('#search').value=record.contract;renderTable();$('.ledger').scrollIntoView({behavior:'smooth'});
+    records=records.filter(r=>r.id!==record.id);records.push(normalize(record));dirty=false;$('#bookingDialog').close();updateYears();scope='all';syncScope();setView('bookings',false);$('#search').value=record.contract;renderTable();$('.ledger').scrollIntoView({behavior:'smooth'});
     toast(LIVE?'Booking saved to Google Sheets.':'Booking saved in this demo.');
   } catch(error){formError('#bookingError',error.message+(LIVE?' If a save was interrupted, retry with the same details to avoid duplicates.':''));}
   finally{setBusy(false,form);}
@@ -603,7 +603,7 @@ function openPayment(id) {
 async function savePayment(e) {
   e.preventDefault();if(busy)return;const form=e.target;formError('#paymentError','');
   try{
-    const r=records.find(x=>x.id===paymentId),clean=Ledger.payment(Object.fromEntries(new FormData(form)),r);setBusy(true,form);
+    const r=records.find(x=>x.id===paymentId),clean=Ledger.payment(Object.fromEntries(new FormData(form)),BetaClient.validationRecord(paymentRequest,r));setBusy(true,form);
     let updated;
     if(LIVE||BETA){updated=(await rpc('recordPayment',{...clean,bookingId:r.id},paymentRequest)).record;}
     else{updated={...r,paid:Math.round((r.paid+clean.amount)*100)/100,payments:[...r.payments,{...clean,id:uuid(),createdAt:new Date().toISOString()}]};deviceSave(records.map(x=>x.id===r.id?updated:x));}

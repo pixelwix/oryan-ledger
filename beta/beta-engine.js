@@ -53,7 +53,7 @@ const BetaLedger = (() => {
           allowed(v,['client','phone','contract','type','date','total','due','covers','projector','audio','bar','security','notes','reason']);reason(v.reason);
           if(r.cancelled)throw Error('Restore the booking before editing it.');
           if(r.type==='Blackout'&&v.type!=='Blackout'||r.type!=='Blackout'&&v.type==='Blackout')throw Error('Release or create a blocked date separately.');
-          const clean=Ledger.booking({...v,total:v.total===''?0:v.total,paid:0});if(clean.type==='Blackout'&&clean.total!==0)throw Error('Blocked dates do not have a price.');if(clean.date!==r.date)checkDate(next.records,r,clean.date);
+          const preservedType=v.type===r.type&&!Ledger.types.includes(r.type);const clean=Ledger.booking({...v,type:preservedType?'Other':v.type,total:v.total===''?0:v.total,paid:0});if(preservedType)clean.type=r.type;if(clean.type==='Blackout'&&clean.total!==0)throw Error('Blocked dates do not have a price.');if(clean.date!==r.date)checkDate(next.records,r,clean.date);
           if(!clean.contract||next.records.some(b=>b.id!==r.id&&b.contract.toLowerCase()===clean.contract.toLowerCase()))throw Error('Enter a unique contract number.');
           ['client','phone','contract','type','date','due','covers','projector','audio','sound','bar','security','notes'].forEach(k=>r[k]=clean[k]);
           r.total=v.total===''?null:clean.total;
