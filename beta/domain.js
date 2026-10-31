@@ -4,6 +4,15 @@ const Ledger = (() => {
   const methods = ['Cash', 'Card', 'Zelle', 'CashApp', 'Venmo', 'Check', 'Other'];
   const deposits = ['Unknown', 'Owed', 'Not Refunded', 'Refunded'];
   function text(value, limit = 500) { return String(value == null ? '' : value).trim().slice(0, limit); }
+  // Format only complete US numbers; preserve incomplete, international and free text verbatim.
+  function phone(value) {
+    const raw = String(value ?? '');
+    if (!/^[\d\s()+.-]+$/.test(raw)) return raw;
+    let digits = raw.replace(/\D/g, '');
+    if (digits.length === 11 && digits[0] === '1') digits = digits.slice(1);
+    else if (raw.trim().startsWith('+')) return raw;
+    return digits.length === 10 ? '(' + digits.slice(0,3) + ')' + digits.slice(3,6) + '-' + digits.slice(6) : raw;
+  }
   function cents(value) {
     if (typeof value !== 'number' && (typeof value !== 'string' || !/^\d+(\.\d{1,2})?$/.test(value.trim()))) throw Error('Enter a valid amount with no more than two decimal places.');
     const n = Number(value);
@@ -80,5 +89,5 @@ const Ledger = (() => {
   const balance = r => {const charge=r.beta?r.financialTotal:r.total;return charge==null?0:Math.max(0,Math.round((charge-r.paid)*100)/100);};
   const review = r => (r.beta?r.financialTotal:r.total) == null || (!(r.beta&&r.reconciliation?.resolved) && ( (r.imported && r.sheetBalance == null) || Math.abs(r.importedDifference || 0) > .005));
   const extrasList = r => [r.covers ? 'Covers+' : '', r.projector ? 'Projector' : '', (r.audio || r.sound) ? 'Audio' : '', r.bar ? 'Bar' : '', r.security ? 'Security' : ''].filter(Boolean);
-  return { pricing, types, methods, deposits, text, cents, date, booking, payment, balance, review, extrasList };
+  return { phone, pricing, types, methods, deposits, text, cents, date, booking, payment, balance, review, extrasList };
 })();

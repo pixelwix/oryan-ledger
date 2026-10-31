@@ -11,6 +11,7 @@ const BetaFeatures = (() => {
   $(id).textContent=(apply?'Calculated: ':'Suggested: ')+summary(q)+(manual&&id==='#betaPriceNote'?' · Your typed price is kept.':'')+' Bar is free. Security is $30/hour, separate.';
  }
  function edit(form,r){
+  form.elements.phone.value=Ledger.phone(r.phone||'');form.elements.phone.placeholder='(123)234-2343';
   if(r.type==='Blackout')return;
   form.elements.total.closest('label').insertAdjacentHTML('afterend','<p class="form-note wide" id="betaEditPriceNote" aria-live="polite"></p><button class="quiet wide" type="button" id="betaEditPriceUse">Use calculated price</button>');
   const update=()=>priceNote(form,'#betaEditPriceNote',false);if(form.betaPriceListener)form.removeEventListener('input',form.betaPriceListener);form.betaPriceListener=update;form.addEventListener('input',update);update();
@@ -22,7 +23,7 @@ const BetaFeatures = (() => {
   $('#detailContent').insertAdjacentHTML('beforeend','<h3>Contracts</h3><p class="form-note">Fictional sample PDFs. Every saved copy is kept unchanged, including after cancellation.</p><div id="betaContractCopies" class="payment-history"></div>');
   try{
    const copies=await rpc('listContracts',r.id);if(detailId!==r.id||!$('#betaContractCopies'))return;
-   $('#betaContractCopies').innerHTML=copies.map(c=>`<div><span><b>${money(c.totalCents/100)} · ${esc(c.templateVersion)}</b><small>${esc(c.createdAt)} · ${esc(c.createdBy)}</small></span><span><button type="button" class="quiet" data-contract-open="${esc(c.id)}">Open</button><button type="button" class="quiet" data-contract-download="${esc(c.id)}">Download</button></span></div>`).join('')||'<p class="empty-copy">No saved copies yet.</p>';
+   $('#betaContractCopies').innerHTML=copies.map(c=>`<div><span><b>${money(c.totalCents/100)} · ${esc(c.templateVersion)}</b><small>${esc(new Date(c.createdAt).toLocaleString())} · ${esc(c.createdBy)}</small></span><span><button type="button" class="quiet" data-contract-open="${esc(c.id)}">Open</button><button type="button" class="quiet" data-contract-download="${esc(c.id)}">Download</button></span></div>`).join('')||'<p class="empty-copy">No saved copies yet.</p>';
    $$('[data-contract-open],[data-contract-download]').forEach(b=>b.onclick=async()=>{
     try{const c=await rpc('getContract',r.id,b.dataset.contractOpen||b.dataset.contractDownload);if(!c)throw Error('This saved copy is unavailable.');
      const url=URL.createObjectURL(new Blob([Uint8Array.from(atob(c.base64),s=>s.charCodeAt(0))],{type:'application/pdf'}));
@@ -34,16 +35,16 @@ const BetaFeatures = (() => {
  function open(){
   const r=records.find(x=>x.id===detailId);if(!r||r.cancelled||r.type==='Blackout'||busy)return;
   contractId=r.id;contractRequest=uuid();pending=null;clearContractPdf();contractInitialChanged=false;dirty=false;
-  const form=$('#contractForm');form.reset();form.elements.phone.value=(r.phone||'').slice(0,40);
+  const form=$('#contractForm');form.reset();form.elements.phone.value=Ledger.phone(r.phone||'').slice(0,40);
   $('#contractGuest').textContent=r.client+' · '+dateLabel(r.date)+' · #'+r.contract;
   $('#contractSummary').innerHTML=`<span>Agreed price<b>${r.total==null?'Not entered':money(r.total)}</b></span><span>Recorded payments<b>${money(r.paid)}</b></span><span>Selected extras<b>${esc(Ledger.extrasList(r).join(', ')||'None')}</b></span>`;
   $('#contractPriceLabel').hidden=r.total!=null;$('#contractPriceNote').hidden=r.total!=null;form.elements.missingPrice.required=r.total==null;
   $('#contractSecurityLabel').hidden=!r.security;form.elements.securityHours.required=r.security;$('#contractConfirmLabel').hidden=contractDeadline(r.date)>=today();
   $('#contractInputs').hidden=false;$('#contractFile').hidden=true;$('#contractShare').hidden=true;$('#contractCreate').hidden=false;$('#contractCancel').textContent='Cancel';$('#betaContractRetry').hidden=true;
-  formError('#contractError','');contractSchedule();$('#detailDialog').close();$('#contractDialog').showModal();form.elements.start.focus();
+  formError('#contractError','');contractSchedule();$('#detailDialog').close();$('#contractDialog').showModal();form.elements.phone.focus();
  }
  async function create(e){
-  // The established form validates times, agreed price, hours and schedule before calling the beta transport.
+  // The beta build supplies fixed access times; security service hours remain separate.
   const original=BetaClient.rpc;
   BetaClient.rpc=async(name,...args)=>{
    if(name!=='createContract')return original(name,...args);
@@ -60,6 +61,20 @@ const BetaFeatures = (() => {
  }
  document.addEventListener('DOMContentLoaded',()=>{
   const style=document.createElement('style');style.textContent='#betaContractCopies>div{flex-wrap:wrap;gap:12px}#betaContractCopies>div>span:first-child{min-width:0;overflow-wrap:anywhere;flex:1 1 220px}#betaContractCopies>div>span:last-child{flex-wrap:wrap}#contractForm .modal-actions{flex-wrap:wrap}';document.head.append(style);
+  document.querySelectorAll('input[name=phone]').forEach(input=>input.placeholder='(123)234-2343');
+  document.addEventListener('input',event=>{
+   const input=event.target;if(input.name!=='phone'||event.isComposing)return;
+   const raw=input.value,formatted=Ledger.phone(raw);if(raw===formatted)return;
+   const start=input.selectionStart,end=input.selectionEnd;
+   const position=offset=>{
+    let count=raw.slice(0,offset).replace(/\D/g,'').length;
+    if(raw.replace(/\D/g,'').length===11)count=Math.max(0,count-1);
+    if(!count)return 0;
+    let seen=0;for(let i=0;i<formatted.length;i++)if(/\d/.test(formatted[i])&&++seen===count)return i+1;
+    return formatted.length;
+   };
+   input.value=formatted;input.setSelectionRange(position(start),position(end));
+  },true);
   const form=$('#bookingForm');
   form.elements.total.closest('label').insertAdjacentHTML('afterend','<p class="form-note wide" id="betaPriceNote" aria-live="polite"></p><button class="quiet wide" type="button" id="betaPriceUse">Use calculated price</button>');
   form.addEventListener('reset',()=>{manual=false;queueMicrotask(()=>priceNote(form,'#betaPriceNote',false));});

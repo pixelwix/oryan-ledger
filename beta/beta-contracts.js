@@ -1,6 +1,6 @@
 /* Fictional PDF generator and immutable browser copies. No private contract wording. */
 const BetaContracts = (() => {
- const key='oryan-beta-contract-copies-v1',templateVersion='fictional-summary-1',limit=2000000;
+ const key='oryan-beta-contract-copies-v1',templateVersion='fictional-summary-2',limit=2000000;
  const read=()=>JSON.parse(localStorage.getItem(key)||'[]');
  function pdf(lines){
   const safe=s=>String(s).replace(/[^\x20-\x7e]/g,'?').replace(/[\\()]/g,'\\$&');
@@ -15,7 +15,7 @@ const BetaContracts = (() => {
   if(initial>total)throw Error('Initial amount exceeds agreed price.');
   const copy={id,bookingId:r.id,createdBy:'Beta tester',createdAt:new Date().toISOString(),totalCents:total,templateVersion,filename:'Oryan-beta-contract-'+id+'.pdf'};
   const rates=Ledger.pricing(r.date).rates, dollars=cents=>'$'+(cents/100).toFixed(0);
-  copy.base64=pdf(['BETA - FICTIONAL CONTRACT SAMPLE','Summary only - no private contract terms or signatures',r.client,'Booking: '+r.contract,'Event date: '+r.date,'Rental: '+v.start+' to '+v.end,'Agreed event total: $'+(total/100).toFixed(2),'Initial scheduled: $'+(initial/100).toFixed(2),'Remaining scheduled: $'+((total-initial)/100).toFixed(2),'Extras: '+Ledger.extrasList(r).filter(x=>x!=='Security').join(', '),'Bar: included free','Security: '+(r.security?v.securityHours+' hours at '+dollars(rates.security)+'/hour, separate':'not selected'),'Hall rates: Fri/Sat '+dollars(rates.weekend)+'; Sun '+dollars(rates.sunday)+'; Mon-Thu '+dollars(rates.weekday),'Federal holidays (actual date): '+dollars(rates.holiday),'Covers '+dollars(rates.covers)+'; Sound '+dollars(rates.audio)+'; Projector '+dollars(rates.projector),'Created by: '+copy.createdBy,'Created: '+copy.createdAt,'Template: '+templateVersion]);return copy;
+  copy.base64=pdf(['BETA - FICTIONAL CONTRACT SAMPLE','Summary only - no private contract terms or signatures',r.client,'Booking: '+r.contract,'Event date: '+r.date,'Rental: 10:00 AM to 12:00 AM','Agreed event total: $'+(total/100).toFixed(2),'Initial scheduled: $'+(initial/100).toFixed(2),'Remaining scheduled: $'+((total-initial)/100).toFixed(2),'Extras: '+Ledger.extrasList(r).filter(x=>x!=='Security').join(', '),'Bar: included free','Security: '+(r.security?v.securityHours+' hours at '+dollars(rates.security)+'/hour, separate':'not selected'),'Hall rates: Fri/Sat '+dollars(rates.weekend)+'; Sun '+dollars(rates.sunday)+'; Mon-Thu '+dollars(rates.weekday),'Federal holidays (actual date): '+dollars(rates.holiday),'Covers '+dollars(rates.covers)+'; Sound '+dollars(rates.audio)+'; Projector '+dollars(rates.projector),'Created by: '+copy.createdBy,'Created: '+copy.createdAt,'Template: '+templateVersion]);return copy;
  }
  async function save(copy){
   if(!navigator.locks)throw Error('This browser cannot safely save copies. Download the PDF and use a current browser.');
