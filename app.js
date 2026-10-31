@@ -552,12 +552,27 @@ function showStep(n) {
   if(n===2){const f=new FormData($('#bookingForm'));$('#bookingReview').textContent=`${f.get('client')} · ${f.get('type')} · ${dateLabel(f.get('date'))}`;$('#bookingForm').elements.total.focus();}
   $('#bookingDialog').scrollTop=0;
 }
-function openBooking(presetDate) {
-  if(!ready||needsSignIn())return;$('#bookingForm').reset();$('#bookingNext').disabled=false;$('#bookingSave').disabled=false;bookingRequest=uuid();dirty=false;formError('#bookingError','');$('#conflict').textContent='';$('#liveBalance').textContent='$0';
-  if(typeof presetDate==='string'&&presetDate){$('#bookingForm').elements.date.value=presetDate;bookingInput();}
-  $('#bookingForm').elements.paymentDate.value=today();$$('[data-initial-payment]').forEach(e=>e.hidden=true);$('#bookingDialog').showModal();showStep(1);
+let priceManual=false;
+function priceText(form,apply,kept) {
+  let q;try{q=Ledger.pricing(form.elements.date.value,Object.fromEntries(new FormData(form)));}catch{return '';}
+  if(q&&apply)form.elements.total.value=(q.totalCents/100).toFixed(2);
+  return (q?(apply?'Calculated: ':'Suggested: ')+q.parts.map(p=>p.label+' '+money(p.cents/100)).join(' + '):'Choose an event date for a calculated price.')+(kept?' · Your typed price is kept.':'')+' Bar is free. Security is $30/hour, separate.';
 }
-function bookingInput() {
+function bookingPrice() {const form=$('#bookingForm'),text=priceText(form,!priceManual,priceManual);if(text)$('#priceNote').textContent=text;}
+// Edits only suggest a price: an existing booking's agreed total changes only if someone asks.
+function editPrice(form) {
+  form.elements.total.closest('label').insertAdjacentHTML('afterend','<p class="form-note wide" id="editPriceNote" aria-live="polite"></p><button class="quiet wide" type="button" id="editPriceUse">Use calculated price</button>');
+  const update=apply=>{const text=priceText(form,apply,false);if(text)$('#editPriceNote').textContent=text;};
+  form.addEventListener('input',()=>{if($('#editPriceNote'))update(false);});update(false);
+  $('#editPriceUse').onclick=()=>{update(true);dirty=true;};
+}
+function openBooking(presetDate) {
+  if(!ready||needsSignIn())return;$('#bookingForm').reset();priceManual=false;$('#bookingNext').disabled=false;$('#bookingSave').disabled=false;bookingRequest=uuid();dirty=false;formError('#bookingError','');$('#conflict').textContent='';$('#liveBalance').textContent='$0';
+  if(typeof presetDate==='string'&&presetDate){$('#bookingForm').elements.date.value=presetDate;bookingInput();}
+  bookingPrice();$('#bookingForm').elements.paymentDate.value=today();$$('[data-initial-payment]').forEach(e=>e.hidden=true);$('#bookingDialog').showModal();showStep(1);
+}
+function bookingInput(event) {
+  if(event?.target?.name==='total')priceManual=true;bookingPrice();
   dirty=true;const f=new FormData($('#bookingForm')),net=Number(f.get('total'))-Number(f.get('paid'));$('#liveBalance').textContent=money(net);
   $$('[data-initial-payment]').forEach(e=>e.hidden=Number(f.get('paid'))<=0);
   const collisions=activeRecords().filter(r=>r.date===f.get('date')).length;
@@ -706,7 +721,7 @@ $$('[data-view]').forEach(b=>b.onclick=()=>setView(b.dataset.view));$('#all').on
 $('#prev').onclick=()=>{page--;renderTable()};$('#next').onclick=()=>{page++;renderTable()};$('#newBooking').onclick=openBooking;$('#mobileAdd').onclick=openBooking;
 $('#quickPayment').onclick=openPicker;$('#quickUpcoming').onclick=showUpcoming;$('#refresh').onclick=load;$('#retryLoad').onclick=load;
 $('#calPrevMonth').onclick=prevMonth;$('#calNextMonth').onclick=nextMonth;$('#calToday').onclick=jumpToday;$('#calNextEvent').onclick=jumpNextEvent;if($('#calNextEventBottom'))$('#calNextEventBottom').onclick=jumpNextEvent;if($('#calToggleAgenda'))$('#calToggleAgenda').onclick=toggleCalendarAgenda;
-$('#bookingForm').noValidate=true;$('#bookingForm').oninput=bookingInput;$('#bookingNext').onclick=advanceBooking;$('#bookingBack').onclick=()=>step===1?closeDialog($('#bookingDialog')):showStep(1);$('#bookingForm').onsubmit=saveBooking;
+$('#bookingForm').noValidate=true;$('#bookingForm').oninput=bookingInput;$('#priceUse').onclick=()=>{priceManual=false;bookingInput();};$('#bookingNext').onclick=advanceBooking;$('#bookingBack').onclick=()=>step===1?closeDialog($('#bookingDialog')):showStep(1);$('#bookingForm').onsubmit=saveBooking;
 if($('#blackoutForm')){$('#blackoutForm').noValidate=true;$('#blackoutForm').oninput=blackoutInput;$('#blackoutForm').onsubmit=saveBlackout;}
 if($('#blackoutCancel'))$('#blackoutCancel').onclick=()=>closeDialog($('#blackoutDialog'));
 $('#paymentForm').onsubmit=savePayment;$('#paymentSearch').oninput=renderPicker;
