@@ -1,6 +1,9 @@
 'use strict';
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
 const LIVE = window.ORYAN_LIVE === true;
+const BETA = window.ORYAN_BETA === true || window.ORYAN_WORKFLOW === true;
+let betaCancelRequest='';
+const eventCharge=r=>BETA?r.financialTotal:r.total;
 const money = n => new Intl.NumberFormat('en-US', {style:'currency', currency:'USD', minimumFractionDigits: Number.isInteger(n) ? 0 : 2, maximumFractionDigits:2}).format(n);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const localDate = s => new Date(s + 'T12:00:00');
@@ -62,6 +65,7 @@ async function apiRun(name, args) {
   return data.response?.result;
 }
 function rpc(name, ...args) {
+  if(BETA)return BetaClient.rpc(name,...args);
   if (API) return apiRun(name, args);
   return new Promise((resolve, reject) => google.script.run.withSuccessHandler(resolve).withFailureHandler(e => reject(Error(e.message || 'Could not reach Google Sheets. Try again.')))[name](...args));
 }
@@ -72,7 +76,7 @@ function renderAccount() {
 }
 function openAccount() {
   const signedIn=LIVE&&accountEmail&&(!API||storedToken(0));
-  $('#accountTitle').textContent=!LIVE?'Demo mode':signedIn?'Signed in':'Not signed in';
+  $('#accountTitle').textContent=window.ORYAN_BETA?'Beta mode':!LIVE?'Demo mode':signedIn?'Signed in':'Not signed in';
   $('#accountEmail').textContent=signedIn?accountEmail:'';$('#accountEmail').hidden=!signedIn;
   $('#accountNote').textContent=!LIVE?'This sample is not tied to an account.':!signedIn?'Sign in with Google to open the ledger.':API?'Sign out removes ledger access on this device. Your Google account stays signed in to this browser, so on a shared computer sign out of Google too.':'You are signed in through Google. To switch accounts, sign out of Google in this browser.';
   $('#accountVersion').textContent=$('.account small').textContent;
@@ -87,10 +91,11 @@ function signOut() {
 // The Sheet keeps the stored type 'Blackout' so existing rows still work; people see 'Blocked date'.
 const typeLabel = t => t === 'Blackout' ? 'Blocked date' : t;
 function normalize(r) {
+  if(BETA)r=BetaLedger.derive(r);
   const openingPaid = r.openingPaid ?? Math.round((r.paid - (r.payments || []).reduce((n,p) => n+p.amount,0))*100)/100;
   const isAudio = r.audio === true || r.sound === true;
-  const isCovers = r.covers === true || /covers\+/i.test(r.notes || '');
-  const isProjector = r.projector === true || /projector/i.test(r.notes || '');
+  const isCovers = BETA&&typeof r.covers==='boolean'?r.covers:r.covers === true || /covers\+/i.test(r.notes || '');
+  const isProjector = BETA&&typeof r.projector==='boolean'?r.projector:r.projector === true || /projector/i.test(r.notes || '');
   return {...r, id:String(r.id), total:r.total ?? null, sheetBalance:r.sheetBalance ?? null, phone:r.phone || '', notes:r.notes || '', payments:r.payments || [], openingPaid,
     covers: isCovers, projector: isProjector, audio: isAudio, sound: isAudio, bar: r.bar === true, security: r.security === true,
     imported: r.imported ?? true, importedDifference:r.importedDifference ?? (r.sheetBalance == null || r.total == null ? 0 : Math.round((r.total-openingPaid-r.sheetBalance)*100)/100)};
@@ -115,7 +120,10 @@ async function load() {
   ready=false; $('#loadError').hidden=true; $('#connectionStatus').textContent=LIVE?'Loading Google Sheets…':'Loading demo…';
   ['#newBooking','#mobileAdd','#quickPayment'].forEach(s=>$(s).disabled=true);
   try {
-    if (LIVE) {
+    if (BETA) {
+      const response=await rpc('getLedger');records=response.records.map(normalize);serverToday=response.today;
+      if(LIVE){if(API&&response.actor)store(localStorage,'oryan-email',response.actor);accountEmail=response.actor||'';renderAccount();$('#reset').hidden=true;$$('.save-destination').forEach(e=>e.textContent='Saved to Google Sheets');}
+    } else if (LIVE) {
       const response=await rpc('getLedger'); records=response.records.map(normalize); serverToday=response.today; if(API&&response.actor)store(localStorage,'oryan-email',response.actor);accountEmail=response.actor||'';renderAccount();
       $('#modeBanner').innerHTML=`<span>${ICONS.check}</span><div><b>Connected to Google Sheets.</b> Bookings and payments save to the app tabs. The original ledger is preserved.</div>`;
       $('#reset').hidden=true; $$('.save-destination').forEach(e=>e.textContent='Saved to Google Sheets');
@@ -125,6 +133,7 @@ async function load() {
     }
     ready=true; updateYears(); render();
     $('#connectionStatus').textContent=LIVE?'Google Sheets · connected':'Demo · saved on this device';
+    if(BETA)BetaUI.loaded();
     $('#lastUpdated').textContent='Updated '+new Date().toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
     ['#newBooking','#mobileAdd','#quickPayment'].forEach(s=>$(s).disabled=false);
   } catch(e) {
@@ -138,15 +147,17 @@ function updateYears() {
   $('#year').innerHTML=years.map(y=>`<option>${esc(y)}</option>`).join('');
   $('#year').value=years.includes(previous)?previous:today().slice(0,4);
 }
-function base() { return records.filter(r=>scope==='all'||r.date.startsWith($('#year').value)); }
+const activeRecords = () => records.filter(r=>!r.cancelled);
+function base() { return activeRecords().filter(r=>scope==='all'||r.date.startsWith($('#year').value)); }
 function render() {
   const data=base(), owing=data.filter(r=>balance(r)>0), sum=k=>data.reduce((n,r)=>n+(Number.isFinite(r[k])?r[k]:0),0);
   $('#metrics').innerHTML=[['Bookings',data.length,'Events in this selection',ICONS.bookings],['Known event value',money(sum('total')),`${data.filter(r=>r.total==null).length} agreed prices still missing`,ICONS.value],['Payments recorded',money(sum('paid')),'Total paid for selected events',ICONS.check],['Balance to collect',money(owing.reduce((n,r)=>n+balance(r),0)),`${owing.length} bookings with a balance`,ICONS.clock]].map(([t,v,n,i])=>`<article class="metric"><div class="metric-top">${t}<span class="metric-icon">${i}</span></div><div class="metric-value">${v}</div><span class="metric-note">${n}</span></article>`).join('');
-  renderUpcoming(); renderCharts(data); renderAttention(data); renderTable();
+  if(BETA)BetaUI.metrics();
+  renderUpcoming(); renderCharts(data); renderAttention(data); if(BETA)BetaUI.attention(); renderTable();
   if(view==='calendar') renderCalendar();
 }
 function renderUpcoming() {
-  const upcoming=records.filter(r=>r.date>=today()).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,3);
+  const upcoming=activeRecords().filter(r=>r.date>=today()).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,3);
   $('#upcomingCards').innerHTML=upcoming.length?upcoming.map(r=>`<button class="upcoming-card" data-detail="${esc(r.id)}"><span class="date-tile"><small>${localDate(r.date).toLocaleDateString('en-US',{month:'short'})}</small><b>${localDate(r.date).getDate()}</b></span><span><b>${esc(r.client)}</b><small>${esc(typeLabel(r.type))} · ${localDate(r.date).toLocaleDateString('en-US',{weekday:'long'})}</small><em>${r.total==null?'Agreed price needs review':balance(r)?money(balance(r))+' to collect':'Paid in full'}</em></span><span>${ICONS.chevronRight}</span></button>`).join(''):'<p class="empty-copy">No upcoming events yet. Add a booking to start planning.</p>';
   bindDetails($('#upcomingCards'));
 }
@@ -162,26 +173,28 @@ function renderCharts(data) {
 }
 function renderAttention(data) {
   const missing=data.filter(r=>r.total==null).length;
-  const duplicateDays=[...new Set(data.filter(r=>records.filter(other=>other.date===r.date).length>1).map(r=>r.date))].length;
+  const duplicateDays=[...new Set(data.filter(r=>activeRecords().filter(other=>other.date===r.date).length>1).map(r=>r.date))].length;
   const late=data.filter(r=>balance(r)>0&&r.due&&r.due<today()).length, mismatch=data.filter(r=>r.total!=null&&review(r)).length, credit=data.filter(r=>r.total!=null&&r.paid>r.total).length;
   $('#attention').innerHTML=[[`${duplicateDays} dates have multiple bookings`,'Imported history needs review. New bookings on an occupied date are blocked.','duplicate'],[`${missing} bookings need an agreed price`,'Payments are preserved; balance and credit stay unknown until the price is entered.','price'],[`${late} bookings past their due date`,'Check the recorded due dates before following up.','overdue'],[`${mismatch} imported balances to review`,'Original cost minus original payments differs from the listed balance.','balanceReview'],[`${credit} bookings show an overpayment`,'Check whether extra money was a refundable security deposit.','credit']].map(([t,n,f])=>`<div class="attention-item"><span>${f==='overdue'?ICONS.clock:ICONS.alert}</span><div><b>${t}</b><p>${n}</p></div><button aria-label="View ${esc(t)}" data-filter="${f}">${ICONS.chevronRight}</button></div>`).join('');
   $$('[data-filter]').forEach(b=>b.onclick=()=>{setView('bookings',false);$('#status').value=b.dataset.filter;$('#dateRange').value='all';page=0;renderTable();$('.ledger').scrollIntoView({behavior:'smooth'})});
 }
 function filtered() {
   const q=$('#search').value.trim().toLowerCase(), s=$('#status').value, range=$('#dateRange').value;
-  const result=base().filter(r=>[r.client,typeLabel(r.type),r.contract,r.phone].join(' ').toLowerCase().includes(q))
-    .filter(r=>s==='all'||s==='balance'&&balance(r)>0||s==='paid'&&r.total!=null&&balance(r)===0||s==='duplicate'&&records.filter(other=>other.date===r.date).length>1||s==='review'&&review(r)||s==='balanceReview'&&r.total!=null&&review(r)||s==='price'&&r.total==null||s==='credit'&&r.total!=null&&r.paid>r.total||s==='overdue'&&balance(r)>0&&r.due&&r.due<today())
+  const selection=s==='cancelled'?records.filter(r=>r.cancelled&&(scope==='all'||r.date.startsWith($('#year').value))):BETA&&['balance','paid','credit','review','price'].includes(s)?records.filter(r=>r.type!=='Blackout'&&(scope==='all'||r.date.startsWith($('#year').value))):base();
+  const result=selection.filter(r=>[r.client,typeLabel(r.type),r.contract,r.phone].join(' ').toLowerCase().includes(q))
+    .filter(r=>s==='cancelled'||s==='all'||s==='balance'&&balance(r)>0||s==='paid'&&eventCharge(r)!=null&&balance(r)===0||s==='duplicate'&&activeRecords().filter(other=>other.date===r.date).length>1||s==='review'&&review(r)||s==='balanceReview'&&eventCharge(r)!=null&&review(r)||s==='price'&&eventCharge(r)==null||s==='credit'&&eventCharge(r)!=null&&r.paid>eventCharge(r)||s==='overdue'&&balance(r)>0&&r.due&&r.due<today())
     .filter(r=>range==='all'||range==='upcoming'&&r.date>=today()||range==='past'&&r.date<today());
   return result.sort((a,b)=>$('#sort').value==='balance'?balance(b)-balance(a)||a.date.localeCompare(b.date):$('#sort').value==='soonest'?a.date.localeCompare(b.date):b.date.localeCompare(a.date));
 }
 function badge(r) {
+  if (r.cancelled) return '<span class="badge">Cancelled</span>';
   if (r.type === 'Blackout') return '<span class="badge blackout">Blocked</span>';
   return `<span class="badge ${review(r)?'review':balance(r)?'due':''}">${r.total==null?'Agreed price missing':review(r)?'Review imported balance':balance(r)?'Balance due':'Paid in full'}</span>`;
 }
 function renderTable() {
   const list=filtered(), size=7; page=Math.min(page,Math.max(0,Math.ceil(list.length/size)-1));
   $('#count').textContent=`${list.length} bookings`;
-  $('#rows').innerHTML=list.slice(page*size,(page+1)*size).map(r=>`<tr><td class="guest-cell"><button class="guest guest-button" data-detail="${esc(r.id)}"><span class="avatar">${esc(r.client.split(' ').map(x=>x[0]).slice(0,2).join(''))}</span><span><b>${esc(r.client)}</b><small>${esc(typeLabel(r.type))} · #${esc(r.contract)}</small></span></button></td><td class="event-cell" data-label="Event date">${dateLabel(r.date)}<small>${localDate(r.date).toLocaleDateString('en-US',{weekday:'long'})}</small></td><td data-label="Agreed price">${r.total==null?'Not entered':money(r.total)}</td><td data-label="Paid">${money(r.paid)}</td><td class="balance-cell" data-label="Balance due">${r.total==null?'Review price':money(balance(r))}${r.total!=null&&r.paid>r.total?`<small>Credit ${money(Math.round((r.paid-r.total)*100)/100)}</small>`:''}</td><td class="status-cell">${badge(r)}</td><td class="actions-cell"><button class="quiet" data-detail="${esc(r.id)}">Details & history</button>${balance(r)>0?`<button class="quiet payment-action" data-payment="${esc(r.id)}">${ICONS.plus}Payment</button>`:''}</td></tr>`).join('')||'<tr class="empty-row"><td colspan="7"><strong>No bookings match.</strong><p>Try a different date or payment filter.</p><button class="quiet" id="clearFilters">Clear filters</button></td></tr>';
+  $('#rows').innerHTML=list.slice(page*size,(page+1)*size).map(r=>`<tr><td class="guest-cell"><button class="guest guest-button" data-detail="${esc(r.id)}"><span class="avatar">${esc(r.client.split(' ').map(x=>x[0]).slice(0,2).join(''))}</span><span><b>${esc(r.client)}</b><small>${esc(typeLabel(r.type))} · #${esc(r.contract)}</small></span></button></td><td class="event-cell" data-label="Event date">${dateLabel(r.date)}<small>${localDate(r.date).toLocaleDateString('en-US',{weekday:'long'})}</small></td><td data-label="Agreed price">${(BETA?r.financialTotal:r.total)==null?'Not entered':money(BETA?r.financialTotal:r.total)}</td><td data-label="Paid">${money(r.paid)}</td><td class="balance-cell" data-label="Balance due">${r.cancelled&&!BETA?'—':(BETA?r.financialTotal:r.total)==null?'Review price':money(balance(r))}${eventCharge(r)!=null&&r.paid>eventCharge(r)?`<small>Credit ${money(Math.round((r.paid-eventCharge(r))*100)/100)}</small>`:''}</td><td class="status-cell">${badge(r)}</td><td class="actions-cell"><button class="quiet" data-detail="${esc(r.id)}">Details & history</button>${!r.cancelled&&balance(r)>0?`<button class="quiet payment-action" data-payment="${esc(r.id)}">${ICONS.plus}Payment</button>`:''}</td></tr>`).join('')||'<tr class="empty-row"><td colspan="7"><strong>No bookings match.</strong><p>Try a different date or payment filter.</p><button class="quiet" id="clearFilters">Clear filters</button></td></tr>';
   $('#pageInfo').textContent=list.length?`${page*size+1}–${Math.min((page+1)*size,list.length)} of ${list.length}`:'No bookings';
   $('#prev').disabled=page===0; $('#next').disabled=(page+1)*size>=list.length;
   bindDetails($('#rows')); $('#rows').querySelectorAll('[data-payment]').forEach(b=>b.onclick=()=>openPayment(b.dataset.payment));
@@ -217,7 +230,7 @@ function jumpToday() {
   renderCalendar();
 }
 function jumpNextEvent() {
-  const t = today(), next = records.filter(r => r.date >= t).sort((a, b) => a.date.localeCompare(b.date))[0];
+  const t = today(), next = activeRecords().filter(r => r.date >= t).sort((a, b) => a.date.localeCompare(b.date))[0];
   if (next) {
     calYear = parseInt(next.date.slice(0, 4), 10);
     calMonth = parseInt(next.date.slice(5, 7), 10) - 1;
@@ -240,7 +253,7 @@ function renderCalendar() {
   if (!selectedDate) selectedDate = t;
   $('#calMonthTitle').textContent = `${MONTH_NAMES[calMonth]} ${calYear}`;
   const monthPrefix = `${calYear}-${String(calMonth + 1).padStart(2, '0')}`;
-  const monthEvents = records.filter(r => r.date.startsWith(monthPrefix));
+  const monthEvents = activeRecords().filter(r => r.date.startsWith(monthPrefix));
   const monthBookedDays = new Set(monthEvents.map(r => r.date)).size;
   $('#calMonthSubtitle').textContent = monthEvents.length ? `${monthEvents.length} event${monthEvents.length === 1 ? '' : 's'} scheduled (${monthBookedDays} booked date${monthBookedDays === 1 ? '' : 's'})` : 'No events scheduled for this month';
 
@@ -260,7 +273,7 @@ function renderCalendar() {
 
   for (let dayNum = 1; dayNum <= daysInMonth; dayNum++) {
     const dateStr = `${monthPrefix}-${String(dayNum).padStart(2, '0')}`;
-    const evs = records.filter(r => r.date === dateStr);
+    const evs = activeRecords().filter(r => r.date === dateStr);
     const isSelected = dateStr === selectedDate;
     const isToday = dateStr === t;
     let dots = '';
@@ -291,7 +304,7 @@ function renderCalendar() {
     const selDateObj = localDate(selectedDate);
     const fullDateStr = selDateObj.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
     $('#calSelectedDayTitle').textContent = fullDateStr;
-    const dayEvents = records.filter(r => r.date === selectedDate);
+    const dayEvents = activeRecords().filter(r => r.date === selectedDate);
     const hasBlackout = dayEvents.some(r => r.type === 'Blackout');
     $('#calSelectedDayBadge').className = `badge ${hasBlackout ? 'blackout' : dayEvents.length ? (dayEvents.some(r => review(r)) ? 'review' : dayEvents.some(r => balance(r) > 0) ? 'due' : '') : ''}`;
     $('#calSelectedDayBadge').textContent = hasBlackout ? 'Blocked date' : dayEvents.length ? `${dayEvents.length} booking${dayEvents.length === 1 ? '' : 's'}` : (selectedDate >= t ? 'Available' : 'Past date');
@@ -358,7 +371,7 @@ function renderCalendar() {
 }
 function renderCalendarAgenda() {
   const t = today();
-  const upcoming = records.filter(r => r.date >= t).sort((a, b) => a.date.localeCompare(b.date));
+  const upcoming = activeRecords().filter(r => r.date >= t).sort((a, b) => a.date.localeCompare(b.date));
   if (!upcoming.length) {
     $('#calendarAgendaList').innerHTML = '<p class="empty-copy">No upcoming events scheduled. Click any available date on the calendar to add a booking.</p>';
     return;
@@ -419,20 +432,41 @@ function setScope(s) {scope=s;syncScope();page=0;render();}
 function showUpcoming() {setView('bookings',false);setScope('all');$('#dateRange').value='upcoming';$('#sort').value='soonest';renderTable();$('.ledger').scrollIntoView({behavior:'smooth'});}
 function openDetails(id) {
   const r=records.find(x=>x.id===id);if(!r)return;detailId=id;
+  $('#cancelBookingAction').hidden=$('#detailCancelBooking').hidden=!!r.cancelled||r.type==='Blackout';
   if(r.type==='Blackout'){
     $('#detailTitle').textContent='Blocked Date';
     $('#detailContent').innerHTML=`<p class="modal-sub">Blocked by <b>${esc(r.client)}</b> · ${dateLabel(r.date)} · #${esc(r.contract)}</p><div class="blackout-notice"><b>Date Unavailable</b>This entire day is blocked on the schedule. No public or private events can be booked on this date.</div>${r.notes?`<h3>Reason & Notes</h3><p class="booking-notes">${esc(r.notes)}</p>`:''}`;
     $('#detailPayment').hidden=true;$('#detailContract').hidden=true;
+    if(BETA)BetaUI.details(r);
     $('#detailDialog').showModal();
     return;
   }
   $('#detailTitle').textContent=r.client;
   const history=[...(r.openingPaid?[{amount:r.openingPaid,date:r.openingDate,method:r.imported?'Historical payments (combined)':r.openingMethod||'Initial payment',note:r.imported?'Imported as a total. Individual payment dates and methods were not available.':'Initial payment at booking'}]:[]),...r.payments];
-  $('#detailContent').innerHTML=`<p class="modal-sub">${esc(typeLabel(r.type))} · ${dateLabel(r.date)} · #${esc(r.contract)}</p>${r.phone?`<p><a class="phone-link" href="tel:${esc(r.phone.replace(/[^+\d]/g,''))}">Call ${esc(r.phone)}</a></p>`:''}<div class="payment-summary"><span>Agreed price<b>${r.total==null?'Not entered':money(r.total)}</b></span><span>Paid<b>${money(r.paid)}</b></span><span>Still due<b>${r.total==null?'Review price':money(balance(r))}</b></span></div>${r.total==null?`<p class="review-note">The agreed price was blank in the original ledger. Payments are preserved, but the balance and any credit are unknown. Confirm the contract, cancellation, and deposit status, then enter the correct price in Oryan Bookings column G and refresh.</p>`:review(r)?`<p class="review-note">Imported balance needs review. ${r.sheetBalance == null ? 'The original listed balance was missing.' : 'The source listed '+money(r.sheetBalance)+'; the difference from the original cost minus paid is '+money(r.importedDifference)+'.'} New payments do not clear this flag.</p>`:''}${r.total!=null&&r.paid>r.total?`<p class="review-note">Overpayment: ${money(Math.round((r.paid-r.total)*100)/100)}. Check the refundable security deposit.</p>`:''}<dl class="booking-facts"><dt>Balance due</dt><dd>${r.due?dateLabel(r.due):'No due date set'}</dd><dt>Included extras</dt><dd>${(Ledger.extrasList?Ledger.extrasList(r):[r.covers?'Covers+':'',r.projector?'Projector':'',(r.audio||r.sound)?'Audio':'',r.bar?'Bar':'',r.security?'Security':''].filter(Boolean)).join(', ')||'None recorded'}</dd><dt>Security deposit status</dt><dd>${esc(r.deposit||'Unknown')}</dd></dl>${r.notes?`<h3>Notes</h3><p class="booking-notes">${esc(r.notes)}</p>`:''}<h3>Payment history</h3><div class="payment-history">${history.length?history.map(p=>`<div><span><b>${esc(p.method||'Not recorded')}</b><small>${p.date?dateLabel(p.date):'Date not available'}</small>${p.note?`<small>${esc(p.note)}</small>`:''}</span><strong>${money(p.amount)}</strong></div>`).join(''):'<p class="empty-copy">No payments recorded yet.</p>'}</div>`;
-  $('#detailContract').hidden=!LIVE;$('#detailPayment').hidden=balance(r)===0;$('#detailDialog').showModal();
+  $('#detailContent').innerHTML=`<p class="modal-sub">${esc(typeLabel(r.type))} · ${dateLabel(r.date)} · #${esc(r.contract)}</p>${r.phone?`<p><a class="phone-link" href="tel:${esc(r.phone.replace(/[^+\d]/g,''))}">Call ${esc(r.phone)}</a></p>`:''}<div class="payment-summary"><span>Agreed price<b>${r.total==null?'Not entered':money(r.total)}</b></span><span>Paid<b>${money(r.paid)}</b></span><span>Still due<b>${r.cancelled&&!BETA?'Cancelled':eventCharge(r)==null?(BETA?'Review charge':'Review price'):money(balance(r))}</b></span></div>${r.total==null?`<p class="review-note">The agreed price was blank in the original ledger. Payments are preserved, but the balance and any credit are unknown. Confirm the contract, cancellation, and deposit status, then use Manage booking to reconcile the imported balance.</p>`:review(r)?`<p class="review-note">Imported balance needs review. ${r.sheetBalance == null ? 'The original listed balance was missing.' : 'The source listed '+money(r.sheetBalance)+'; the difference from the original cost minus paid is '+money(r.importedDifference)+'.'} New payments do not clear this flag.</p>`:''}${r.total!=null&&r.paid>r.total?`<p class="review-note">Overpayment: ${money(Math.round((r.paid-r.total)*100)/100)}. Check the refundable security deposit.</p>`:''}<dl class="booking-facts"><dt>Balance due</dt><dd>${r.due?dateLabel(r.due):'No due date set'}</dd><dt>Included extras</dt><dd>${(Ledger.extrasList?Ledger.extrasList(r):[r.covers?'Covers+':'',r.projector?'Projector':'',(r.audio||r.sound)?'Audio':'',r.bar?'Bar':'',r.security?'Security':''].filter(Boolean)).join(', ')||'None recorded'}</dd><dt>Security deposit status</dt><dd>${esc(r.deposit||'Unknown')}</dd></dl>${r.notes?`<h3>Notes</h3><p class="booking-notes">${esc(r.notes)}</p>`:''}<h3>Payment history</h3><div class="payment-history">${history.length?history.map(p=>`<div><span><b>${esc(p.method||'Not recorded')}</b><small>${p.date?dateLabel(p.date):'Date not available'}</small>${p.note?`<small>${esc(p.note)}</small>`:''}</span><strong>${money(p.amount)}</strong></div>`).join(''):'<p class="empty-copy">No payments recorded yet.</p>'}</div>`;
+  if(r.cancelled)$('#detailContent').insertAdjacentHTML('afterbegin',`<p class="review-note"><b>Cancelled</b> · ${esc(r.cancelledAt?.slice(0,10)||'')}<br>This booking no longer reserves the date. Booking and payment history are preserved. Refunds and any cancellation charges must be reconciled separately.</p>`);
+  $('#detailContract').hidden=!LIVE||!!r.cancelled;$('#detailPayment').hidden=!!r.cancelled||balance(r)===0;if(BETA)BetaUI.details(r);$('#detailDialog').showModal();
+}
+function openCancelBooking() {
+  const r=records.find(x=>x.id===detailId);if(busy||!r||r.cancelled||r.type==='Blackout'||needsSignIn())return;
+  if(BETA){betaCancelRequest=uuid();$('#cancelBookingForm').reset();}
+  $('#cancelBookingGuest').textContent=`${r.client} · ${dateLabel(r.date)} · #${r.contract}`;
+  formError('#cancelBookingError','');$('#detailDialog').close();$('#cancelBookingDialog').showModal();
+}
+async function confirmCancelBooking(event) {
+  event.preventDefault();if(busy)return;
+  const form=event.target,r=records.find(x=>x.id===detailId);if(!r)return;
+  busy=true;[...form.querySelectorAll('button')].forEach(b=>b.disabled=true);formError('#cancelBookingError','');
+  try {
+    const updated=(LIVE||BETA)?(await rpc('cancelBooking',r.id,...(BETA?[$('#cancelBookingForm').elements.reason.value,betaCancelRequest]:[]))).record:{...r,cancelled:true,cancelledAt:new Date().toISOString(),cancelledBy:'Demo user'};
+    const next=records.map(x=>x.id===r.id?normalize(updated):x);
+    if(!LIVE&&!BETA)deviceSave(next);records=next;dirty=false;$('#cancelBookingDialog').close();render();
+    toast('Booking cancelled. The date is available unless another booking reserves it.');openDetails(r.id);
+  }catch(error){formError('#cancelBookingError',error.message+' Retry if the connection was interrupted; the booking will only be cancelled once.');}
+  finally{busy=false;[...form.querySelectorAll('button')].forEach(b=>b.disabled=false);}
 }
 function renderPicker() {
-  const q=$('#paymentSearch').value.toLowerCase().trim(), choices=records.filter(r=>balance(r)>0&&[r.client,r.contract,r.phone].join(' ').toLowerCase().includes(q)).sort((a,b)=>a.date.localeCompare(b.date));
+  const q=$('#paymentSearch').value.toLowerCase().trim(), choices=(BETA?records:activeRecords()).filter(r=>balance(r)>0&&[r.client,r.contract,r.phone].join(' ').toLowerCase().includes(q)).sort((a,b)=>a.date.localeCompare(b.date));
   $('#paymentChoices').innerHTML=choices.slice(0,30).map(r=>`<button class="payment-choice" data-choose="${esc(r.id)}"><span><b>${esc(r.client)}</b><small>${esc(typeLabel(r.type))} · ${dateLabel(r.date)} · #${esc(r.contract)}</small></span><span><strong>${r.total==null?'Review price':money(balance(r))}</strong><small>remaining ${ICONS.chevronRight}</small></span></button>`).join('')||'<p class="empty-copy">No matching bookings with a balance due.</p>';
   if(choices.length>30)$('#paymentChoices').innerHTML+='<p class="empty-copy">Showing 30 matches. Search for a name, phone, or contract to narrow the list.</p>';
   $$('[data-choose]').forEach(b=>b.onclick=()=>{$('#pickerDialog').close();openPayment(b.dataset.choose)});
@@ -451,7 +485,7 @@ function contractSchedule() {
   $('#contractSchedule').textContent=`${r.bar?`Contract total: ${money(total)}, including Bar $100. The ledger price is not changed. `:''}Remaining scheduled amount: ${Number.isFinite(remaining)&&remaining>=0?money(remaining):'Review amounts'}. Due ${dateLabel(contractDeadline(r.date))}. This is the contract schedule, not the unpaid ledger balance.`;
 }
 function openContract() {
-  const r=records.find(x=>x.id===detailId);if(!LIVE||!r||r.type==='Blackout'||needsSignIn())return;
+  const r=records.find(x=>x.id===detailId);if(!LIVE||!r||r.cancelled||r.type==='Blackout'||needsSignIn())return;
   contractId=r.id;clearContractPdf();contractInitialChanged=false;dirty=false;
   const form=$('#contractForm');form.reset();form.elements.phone.value=r.phone.slice(0,40);
   $('#contractGuest').textContent=`${r.client} · ${dateLabel(r.date)} · #${r.contract}`;
@@ -517,13 +551,13 @@ function openBooking(presetDate) {
 function bookingInput() {
   dirty=true;const f=new FormData($('#bookingForm')),net=Number(f.get('total'))-Number(f.get('paid'));$('#liveBalance').textContent=money(net);
   $$('[data-initial-payment]').forEach(e=>e.hidden=Number(f.get('paid'))<=0);
-  const collisions=records.filter(r=>r.date===f.get('date')).length;
-  const isBlackout=records.some(r=>r.date===f.get('date')&&r.type==='Blackout');
+  const collisions=activeRecords().filter(r=>r.date===f.get('date')).length;
+  const isBlackout=activeRecords().some(r=>r.date===f.get('date')&&r.type==='Blackout');
   $('#conflict').textContent=collisions?isBlackout?'Date unavailable: this day has been blocked. Choose another date.':`Already booked: ${collisions} booking(s) on this date. Choose another date; each booking reserves the whole date.`:'';
   $('#bookingNext').disabled=collisions>0||busy;$('#bookingSave').disabled=collisions>0||busy;
 }
 function advanceBooking() {
-  if(records.some(r=>r.date===$('#bookingForm').elements.date.value)){formError('#bookingError','This date is already booked. Choose another date.');return;}
+  if(activeRecords().some(r=>r.date===$('#bookingForm').elements.date.value)){formError('#bookingError','This date is already booked. Choose another date.');return;}
   for(const el of $('#bookingForm').querySelector('[data-step="1"]').querySelectorAll('input,select'))if(!el.reportValidity())return;
   if(!$('#bookingForm').elements.client.value.trim()){formError('#bookingError','Enter the guest’s name.');return;}
   showStep(2);
@@ -538,9 +572,9 @@ async function saveBooking(e) {
   try {
     const clean=Ledger.booking(bookingPayload());setBusy(true,form);
     let record;
-    if(LIVE){record=(await rpc('createBooking',clean,bookingRequest)).record;}
+    if(LIVE||BETA){record=(await rpc('createBooking',clean,bookingRequest)).record;}
     else {
-      if(records.some(r=>r.date===clean.date))throw Error('This date is already booked. Choose another date.');
+      if(activeRecords().some(r=>r.date===clean.date))throw Error('This date is already booked. Choose another date.');
       if(clean.contract&&records.some(r=>r.contract.toLowerCase()===clean.contract.toLowerCase()))throw Error('That contract number is already in the ledger.');
       record={...clean,id:uuid(),contract:clean.contract||'O-'+bookingRequest.slice(0,8).toUpperCase(),openingPaid:clean.paid,openingDate:clean.paymentDate,openingMethod:clean.method,sheetBalance:null,importedDifference:0,imported:false,createdAt:new Date().toISOString(),payments:[]};
       deviceSave([...records,record]);
@@ -551,10 +585,10 @@ async function saveBooking(e) {
   finally{setBusy(false,form);}
 }
 function openPayment(id) {
-  const r=records.find(x=>x.id===id);if(!r||balance(r)<=0||needsSignIn())return;paymentId=id;paymentRequest=uuid();dirty=false;
+  const r=records.find(x=>x.id===id);if(!r||(!BETA&&r.cancelled)||balance(r)<=0||needsSignIn())return;paymentId=id;paymentRequest=uuid();dirty=false;
   $('#paymentForm').reset();$('#paymentForm').elements.date.value=today();formError('#paymentError','');
   $('#paymentGuest').textContent=`${r.client} · ${typeLabel(r.type)} · ${dateLabel(r.date)} · #${r.contract}`;
-  $('#paymentSummary').innerHTML=`<span>Agreed price<b>${r.total==null?'Not entered':money(r.total)}</b></span><span>Already paid<b>${money(r.paid)}</b></span><span>Still due<b>${r.total==null?'Review price':money(balance(r))}</b></span>`;
+  $('#paymentSummary').innerHTML=`<span>Agreed price<b>${(BETA?r.financialTotal:r.total)==null?'Not entered':money((BETA?r.financialTotal:r.total))}</b></span><span>Already paid<b>${money(r.paid)}</b></span><span>Still due<b>${(BETA?r.financialTotal:r.total)==null?'Review price':money(balance(r))}</b></span>`;
   $('#afterPayment').textContent=money(balance(r));$('#paymentDialog').showModal();$('#paymentForm').elements.amount.focus();
 }
 async function savePayment(e) {
@@ -562,7 +596,7 @@ async function savePayment(e) {
   try{
     const r=records.find(x=>x.id===paymentId),clean=Ledger.payment(Object.fromEntries(new FormData(form)),r);setBusy(true,form);
     let updated;
-    if(LIVE){updated=(await rpc('recordPayment',{...clean,bookingId:r.id},paymentRequest)).record;}
+    if(LIVE||BETA){updated=(await rpc('recordPayment',{...clean,bookingId:r.id},paymentRequest)).record;}
     else{updated={...r,paid:Math.round((r.paid+clean.amount)*100)/100,payments:[...r.payments,{...clean,id:uuid(),createdAt:new Date().toISOString()}]};deviceSave(records.map(x=>x.id===r.id?updated:x));}
     records=records.map(x=>x.id===paymentId?normalize(updated):x);dirty=false;$('#paymentDialog').close();render();toast(`${money(clean.amount)} payment saved${LIVE?' to Google Sheets':''}.`);
     openDetails(updated.id);
@@ -612,7 +646,7 @@ async function saveBlackout(e) {
   const notes = f.get('notes') ? f.get('notes').trim() : '';
   if (!blockedBy) { formError('#blackoutError', 'Enter the name of the person blocking this date.'); return; }
   if (!dateVal) { formError('#blackoutError', 'Select a date to block.'); return; }
-  if (records.some(r => r.date === dateVal)) { formError('#blackoutError', 'This date is already booked or blocked. Choose another date.'); return; }
+  if (activeRecords().some(r => r.date === dateVal)) { formError('#blackoutError', 'This date is already booked or blocked. Choose another date.'); return; }
   const combinedNotes = [reason ? `Reason: ${reason}` : '', notes].filter(Boolean).join('\n');
   const payload = {
     client: blockedBy, date: dateVal, type: 'Blackout', total: 0, paid: 0,
@@ -623,10 +657,10 @@ async function saveBlackout(e) {
     const clean = Ledger.booking(payload);
     setBusy(true, form);
     let record;
-    if (LIVE) {
+    if (LIVE||BETA) {
       record = (await rpc('createBooking', clean, blackoutRequest)).record;
     } else {
-      if (records.some(r => r.date === clean.date)) throw Error('This date is already booked or blocked. Choose another date.');
+      if (activeRecords().some(r => r.date === clean.date)) throw Error('This date is already booked or blocked. Choose another date.');
       record = {
         ...clean, id: uuid(), openingPaid: 0, openingDate: '', openingMethod: '',
         sheetBalance: null, importedDifference: 0, imported: false, createdAt: new Date().toISOString(), payments: []
@@ -653,9 +687,9 @@ async function saveBlackout(e) {
   }
 }
 function exportCsv() {
-  const header=['Contract','Client','Event type','Event date','Total','Paid','Calculated balance','Original listed balance','Deposit status','Due date'];
+  const header=['Contract','Client','Event type','Event date','Total','Paid','Calculated balance','Original listed balance','Deposit status','Due date','Booking status'];
   const safe=v=>'"'+String(v??'').replace(/^[\s]*[=+@\-]/,"'$&").replace(/"/g,'""')+'"';
-  const csv=[header,...filtered().map(r=>[r.contract,r.client,typeLabel(r.type),r.date,r.total,r.paid,r.total==null?'':balance(r),r.sheetBalance,r.deposit,r.due])].map(row=>row.map(safe).join(',')).join('\r\n');
+  const csv=[header,...filtered().map(r=>[r.contract,r.client,typeLabel(r.type),r.date,r.total,r.paid,r.cancelled||r.total==null?'':balance(r),r.sheetBalance,r.deposit,r.due,r.cancelled?'Cancelled':'Active'])].map(row=>row.map(safe).join(',')).join('\r\n');
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8;'}));a.download='oryan-ledger.csv';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
 }
 $$('[data-view]').forEach(b=>b.onclick=()=>setView(b.dataset.view));$('#all').onclick=()=>setScope('all');$('#yearButton').onclick=()=>setScope('year');$('#year').onchange=()=>setScope('year');
@@ -669,6 +703,7 @@ if($('#blackoutCancel'))$('#blackoutCancel').onclick=()=>closeDialog($('#blackou
 $('#paymentForm').onsubmit=savePayment;$('#paymentSearch').oninput=renderPicker;
 $('#paymentForm').oninput=()=>{dirty=true;const r=records.find(x=>x.id===paymentId),amount=Number($('#paymentForm').elements.amount.value);$('#afterPayment').textContent=money(Math.round((balance(r)-amount)*100)/100);};
 $('#payRemaining').onclick=()=>{const r=records.find(x=>x.id===paymentId);$('#paymentForm').elements.amount.value=balance(r).toFixed(2);$('#paymentForm').dispatchEvent(new Event('input'));};
+$('#detailCancelBooking').onclick=openCancelBooking;$('#cancelBookingForm').onsubmit=confirmCancelBooking;$('#cancelBookingBack').onclick=()=>{$('#cancelBookingDialog').close();openDetails(detailId);};
 $('#detailContract').onclick=openContract;$('#contractForm').oninput=contractInput;$('#contractForm').onsubmit=createContractPdf;$('#contractCancel').onclick=()=>closeDialog($('#contractDialog'));$('#contractShare').onclick=shareContractPdf;$('#contractDialog').addEventListener('close',()=>{clearContractPdf();$('#contractForm').reset();contractId=null;});
 $('#detailClose').onclick=()=>$('#detailDialog').close();$('#detailPayment').onclick=()=>{$('#detailDialog').close();openPayment(detailId)};
 $$('.close').forEach(b=>b.onclick=()=>closeDialog(b.closest('dialog')));

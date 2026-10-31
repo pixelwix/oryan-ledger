@@ -42,15 +42,17 @@ const Ledger = (() => {
   }
   function payment(input, record) {
     if (!input || !record) throw Error('Choose a booking.');
-    if (record.total == null) throw Error('Enter the agreed price in Oryan Bookings before recording another payment.');
-    const amount = cents(input.amount), remaining = Math.max(0, Math.round((record.total - record.paid) * 100));
+    if (record.cancelled && !record.beta) throw Error('This booking is cancelled. New payments cannot be recorded.');
+    const charge=record.beta?record.financialTotal:record.total;
+    if (charge == null) throw Error('Enter the agreed price in Oryan Bookings before recording another payment.');
+    const amount = cents(input.amount), remaining = Math.max(0, Math.round((charge - record.paid) * 100));
     if (amount <= 0) throw Error('Enter a payment greater than $0.');
     if (amount > remaining) throw Error('This payment exceeds the remaining event balance. Refresh the booking or track a security deposit separately.');
     if (!methods.includes(input.method)) throw Error('Choose a payment method.');
     return { amount: amount / 100, date: date(input.date), method: input.method, note: text(input.note, 500) };
   }
-  const balance = r => r.total == null ? 0 : Math.max(0, Math.round((r.total - r.paid) * 100) / 100);
-  const review = r => r.total == null || (r.imported && r.sheetBalance == null) || Math.abs(r.importedDifference || 0) > .005;
+  const balance = r => {const charge=r.beta?r.financialTotal:r.total;return charge==null?0:Math.max(0,Math.round((charge-r.paid)*100)/100);};
+  const review = r => (r.beta?r.financialTotal:r.total) == null || (!(r.beta&&r.reconciliation?.resolved) && ( (r.imported && r.sheetBalance == null) || Math.abs(r.importedDifference || 0) > .005));
   const extrasList = r => [r.covers ? 'Covers+' : '', r.projector ? 'Projector' : '', (r.audio || r.sound) ? 'Audio' : '', r.bar ? 'Bar' : '', r.security ? 'Security' : ''].filter(Boolean);
   return { types, methods, deposits, text, cents, date, booking, payment, balance, review, extrasList };
 })();
