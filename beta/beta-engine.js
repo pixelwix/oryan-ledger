@@ -9,6 +9,7 @@ const BetaLedger = (() => {
   function derive(input) {
     const r=clone(input);r.beta=true;r.revision=r.revision||0;
     r.payments=r.payments||[];r.refunds=r.refunds||[];r.voids=r.voids||[];r.depositTransactions=r.depositTransactions||[];r.activity=r.activity||[];
+    r.paymentContacts=r.paymentContacts||[];r.nextFollowUp=r.nextFollowUp||'';r.cancellationDue=r.cancellationDue||'';
     r.contractStatus=r.contractStatus||'Not prepared';r.cancelled=!!r.cancelled;
     r.cancellationFee=r.cancellationFee==null?null:Number(r.cancellationFee);
     r.original=r.original||{total:r.total,openingPaid:r.openingPaid||0,sheetBalance:r.sheetBalance,importedDifference:r.importedDifference||0};
@@ -36,7 +37,7 @@ const BetaLedger = (() => {
     if(!meta||!meta.id||!meta.actor||!meta.at)throw Error('Change identity is required.');
     const next=clone(state),v=cmd.values||{};
     const previous=state.records.find(b=>b.id===cmd.bookingId);
-    let r=next.records.find(b=>b.id===cmd.bookingId);
+    let r=next.records.find(b=>b.id===cmd.bookingId);if(r)r=derive(r);
     if(cmd.type==='create') {
       allowed(v,['client','phone','contract','type','date','total','paid','paymentDate','method','due','deposit','covers','projector','audio','sound','bar','security','notes']);
       const clean=Ledger.booking(v);if(clean.type==='Blackout'&&clean.total!==0)throw Error('Blocked dates do not have a price.');checkDate(next.records,{id:meta.id},clean.date);
@@ -86,11 +87,11 @@ const BetaLedger = (() => {
           allowed(v,['reason']);reason(v.reason);
           if(r.cancelled)throw Error('This booking or blocked date is already cancelled.');
           if(cmd.type==='release'&&r.type!=='Blackout')throw Error('Choose a blocked date to release.');
-          r.cancelled=true;r.cancelledAt=meta.at;r.cancelledBy=meta.actor;r.cancellationFee=null;break;
+          r.cancellationDue='';r.nextFollowUp='';r.cancelled=true;r.cancelledAt=meta.at;r.cancelledBy=meta.actor;r.cancellationFee=null;break;
         }
         case 'restore': {
           allowed(v,['reason']);reason(v.reason);if(!r.cancelled)throw Error('This booking is already active.');checkDate(next.records,r,r.date);
-          r.cancelled=false;r.lastCancellationFee=r.cancellationFee;r.cancellationFee=null;break;
+          r.nextFollowUp='';r.cancelled=false;r.lastCancellationFee=r.cancellationFee;r.cancellationFee=null;break;
         }
         case 'settle': {
           allowed(v,['amount','reason']);reason(v.reason);
@@ -101,6 +102,20 @@ const BetaLedger = (() => {
           if(!r.imported)throw Error('This booking has no imported balance to reconcile.');
           r.total=amount(v.total);r.openingPaid=amount(v.openingPaid);
           r.reconciliation={resolved:true,reason:v.reason,createdAt:meta.at,createdBy:meta.actor};break;
+        }
+        case 'reminder': {
+          allowed(v,['kind','due','nextFollowUp','date','method','note','reason']);reason(v.reason);
+          if(!['plan','contact'].includes(v.kind))throw Error('Choose a reminder action.');
+          if(r.financialTotal==null||r.financialTotal-r.paid<=0)throw Error('A confirmed outstanding event balance is required.');
+          const due=Ledger.date(v.due,true),nextDate=Ledger.date(v.nextFollowUp,true);
+          if(!r.cancelled&&due&&due>r.date)throw Error('The balance due date must be on or before the event.');
+          if(r.cancelled)r.cancellationDue=due;else r.due=due;
+          r.nextFollowUp=nextDate;
+          if(v.kind==='contact'){
+            if(!['Phone','Text message','Email','In person','Other'].includes(v.method))throw Error('Choose how the guest was contacted.');
+            r.paymentContacts.push({id:meta.id,date:Ledger.date(v.date),method:v.method,note:Ledger.text(v.note,500),amountDue:round(r.financialTotal-r.paid),due,nextFollowUp:nextDate,createdAt:meta.at,createdBy:meta.actor});
+          }
+          break;
         }
         case 'contractStatus': {
           allowed(v,['status','date','reason']);reason(v.reason);
@@ -130,7 +145,7 @@ const BetaLedger = (() => {
     return {activeBookings:records.filter(r=>!r.cancelled&&r.type!=='Blackout').length,charges:sum(r=>r.financialTotal||0),payments:sum(r=>r.paid),unpricedPayments:sum(r=>r.financialTotal==null?r.paid:0),balance:sum(r=>r.financialTotal==null?0:Math.max(0,r.financialTotal-r.paid)),credits:sum(r=>r.credit||0),depositHeld:sum(r=>r.depositHeld),depositReceived:sum(r=>r.depositReceived),depositRefunded:sum(r=>r.depositRefunded),depositDeducted:sum(r=>r.depositDeducted),unpriced:records.filter(r=>r.type!=='Blackout'&&r.financialTotal==null).length,unsettled:records.filter(r=>r.type!=='Blackout'&&r.cancelled&&r.cancellationFee==null).length};
   }
   function report(records) {
-    return [['Contract','Guest','Event date','Status','Agreed charges','Net event payments','Balance to collect','Credit / refund to review','Deposit held','Contract status','Deposit received','Deposit refunded','Deposit deducted'],...records.map(r=>[r.contract,r.client,r.date,r.cancelled?'Cancelled':r.type==='Blackout'?'Blocked':'Active',r.financialTotal??'',r.paid,r.financialTotal==null?'':round(Math.max(0,r.financialTotal-r.paid)),r.credit??'',r.depositHeld,r.contractStatus,r.depositReceived,r.depositRefunded,r.depositDeducted])];
+    return [['Contract','Guest','Event date','Status','Agreed charges','Net event payments','Balance to collect','Credit / refund to review','Deposit held','Contract status','Deposit received','Deposit refunded','Deposit deducted','Payment due','Next follow-up','Last contact','Contact count'],...records.map(r=>[r.contract,r.client,r.date,r.cancelled?'Cancelled':r.type==='Blackout'?'Blocked':'Active',r.financialTotal??'',r.paid,r.financialTotal==null?'':round(Math.max(0,r.financialTotal-r.paid)),r.credit??'',r.depositHeld,r.contractStatus,r.depositReceived,r.depositRefunded,r.depositDeducted,dueDate(r),r.nextFollowUp||'',(r.paymentContacts||[]).map(c=>c.date).sort().pop()||'',(r.paymentContacts||[]).length])];
   }
   function receipt(record,id) {
     let t=record.payments.find(t=>t.id===id),kind='Event payment';
@@ -140,5 +155,18 @@ const BetaLedger = (() => {
     if(!t)throw Error('Receipt entry not found.');
     return {...clone(t),kind,voided:record.voids.some(v=>v.targetId===id),client:record.client,contract:record.contract,eventDate:record.date};
   }
-  return {initial,derive,apply,execute,summary,report,receipt,statuses};
+  const dueDate = r => r.cancelled?(r.cancellationDue||''):(r.due||'');
+  function reminders(records,today) {
+    Ledger.date(today);const end=new Date(today+'T12:00:00Z');end.setUTCDate(end.getUTCDate()+7);const soon=end.toISOString().slice(0,10);
+    return records.filter(r=>r.type!=='Blackout'&&r.financialTotal!=null&&r.financialTotal-r.paid>0).map(r=>{
+      const due=dueDate(r),contacts=(r.paymentContacts||[]).slice().sort((a,b)=>b.date.localeCompare(a.date)||b.createdAt.localeCompare(a.createdAt));
+      return {id:r.id,client:r.client,contract:r.contract,amount:round(r.financialTotal-r.paid),due,nextFollowUp:r.nextFollowUp||'',lastContact:contacts[0]||null,overdue:!!due&&due<today,dueSoon:!!due&&due>=today&&due<=soon,followUpDue:!!r.nextFollowUp&&r.nextFollowUp<=today,missingDue:!due};
+    }).sort((a,b)=>Number(b.followUpDue)-Number(a.followUpDue)||Number(b.overdue)-Number(a.overdue)||(a.nextFollowUp||a.due||'9999').localeCompare(b.nextFollowUp||b.due||'9999')||a.contract.localeCompare(b.contract));
+  }
+  function reminderText(r,due=dueDate(r)) {
+    if(r.type==='Blackout'||r.financialTotal==null||r.financialTotal-r.paid<=0)throw Error('A confirmed outstanding event balance is required.');
+    Ledger.date(due,true);const value=round(r.financialTotal-r.paid).toFixed(2);
+    return `Hi ${r.client}, this is a reminder from O’Ryan Event Center that $${value} remains ${r.cancelled?'on the agreed cancellation charge':'for your event on '+r.date}${due?'. Payment is due '+due:'. Please contact us to confirm the payment due date'}. Contract #${r.contract}. Thank you.`;
+  }
+  return {initial,derive,apply,execute,summary,report,receipt,statuses,dueDate,reminders,reminderText};
 })();

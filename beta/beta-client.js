@@ -3,7 +3,7 @@ const BetaClient = (() => {
  const key='oryan-workflow-beta-v1';let state;
  const remote=window.ORYAN_BETA_REMOTE===true;
  const clone=x=>JSON.parse(JSON.stringify(x));
- function readState(){const s=localStorage.getItem(key);return s?JSON.parse(s):BetaLedger.initial(BETA_SEED);}
+ function readState(){const s=localStorage.getItem(key);if(!s)return BetaLedger.initial(BETA_SEED);const stored=JSON.parse(s);return {...stored,records:stored.records.map(BetaLedger.derive)};}
  function save(s){try{localStorage.setItem(key,JSON.stringify(s));}catch{throw Error('This browser could not save beta data. Nothing was changed.');}state=s;}
  function google(name,args){return new Promise((resolve,reject)=>googleThis().withSuccessHandler(resolve).withFailureHandler(e=>reject(Error(e.message)))[name](...args));}
  function googleThis(){if(!window.google?.script?.run)throw Error('The separate beta backend is not connected.');return window.google.script.run;}
