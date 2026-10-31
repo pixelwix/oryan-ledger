@@ -192,3 +192,29 @@ fieldset input:focus-visible{outline:2px solid #cfb25d;outline-offset:2px;box-sh
 /* Fit the new action in the existing gap on phones without moving Close or Record payment. */
 @media(max-width:760px){#detailContract{max-width:90px;padding:0 6px}}
 #contractSummary span:last-child b{font-size:14px;line-height:1.35;color:inherit}
+/* Dialog polish: matching heights, tidy phone actions, no colliding labels. */
+dialog .modal-actions{gap:10px}
+dialog .modal-actions .primary,dialog .modal-actions .quiet{min-height:44px;padding-top:0;padding-bottom:0;white-space:nowrap}
+.form-grid input:not([type=checkbox]):not([type=radio]),.form-grid select{height:46px}
+.payment-summary span{display:flex;flex-direction:column;justify-content:space-between;gap:4px}
+.payment-summary b.summary-text{font-size:14px;line-height:1.35}
+#contractSummary span:last-child b{display:flex;align-items:center;min-height:30px}
+.payment-history>div>span:last-child{display:flex;align-items:center;justify-content:flex-end;gap:12px;flex-shrink:0}
+#cancelBookingForm .wide{display:block;position:relative;margin-top:16px;font-size:12px}
+#cancelBookingForm .required{position:absolute;right:0;top:0;font-size:10px}
+#cancelBookingForm textarea{display:block;width:100%;margin-top:8px;padding:12px;min-height:76px;border:1px solid #555348;border-radius:6px;font-size:14px;resize:vertical}
+fieldset{gap:6px 16px}
+fieldset input{min-height:0!important;height:16px;padding:0;margin:0 8px 0 0}
+fieldset label{min-height:32px}
+#confirmDialog{max-width:420px}
+#confirmDialog h2{margin:0 0 10px;font-size:20px}
+#confirmDialog p{margin:0;color:var(--muted);font-size:13px;line-height:1.6}
+#confirmDialog .modal-actions{position:static;margin:20px 0 0;padding:18px 0 0;background:none}
+@media(max-width:480px){
+  #all,#yearButton{min-height:36px}
+  #detailDialog .modal-actions{flex-wrap:wrap}
+  #detailClose,#detailContract{flex:1 1 0;max-width:none;padding-left:10px;padding-right:10px}
+  #detailPayment{flex:1 1 100%}
+  #contractForm label:has([name=initial]),#contractForm label:has([name=method]){grid-column:1/-1}
+  #cancelBookingForm textarea{font-size:16px}
+}
