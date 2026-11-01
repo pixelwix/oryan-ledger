@@ -218,3 +218,93 @@ fieldset label{min-height:32px}
   #contractForm label:has([name=initial]),#contractForm label:has([name=method]){grid-column:1/-1}
   #cancelBookingForm textarea{font-size:16px}
 }
+/* Shared site controls and bounded dialog content. */
+select[hidden]{display:none!important}
+.site-choice-label{grid-column:1/-1}
+.site-choice-label>.site-choices{margin-top:8px}
+.site-choices{min-width:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(125px,1fr));gap:6px 12px;margin:0}
+.site-choices legend{font-size:12px;padding:0 0 8px}
+.site-choices label{display:flex;align-items:center;gap:8px;min-height:44px;line-height:1.4}
+.site-choice-label>.site-choices legend{display:none}
+input[type=checkbox],input[type=radio]{appearance:none;-webkit-appearance:none;flex:0 0 20px;width:20px;height:20px!important;min-height:20px!important;margin:0;border:1px solid #aaa99f;border-radius:4px;background:#17191a;padding:0}
+input[type=checkbox]:checked,input[type=radio]:checked{background:#cfb25d;box-shadow:inset 0 0 0 4px #202224}
+input[type=checkbox]:focus-visible,input[type=radio]:focus-visible{outline:2px solid #cfb25d;outline-offset:3px}
+.site-menu-control{display:inline-flex;min-width:0;max-width:100%}
+.site-menu-control>.quiet{white-space:normal;text-align:left;line-height:1.4;max-width:100%;min-height:44px}
+.site-menu{width:350px;padding:12px;display:none}
+.site-menu[open]{display:flex;flex-direction:column;gap:6px}
+.site-menu button{text-align:left;padding:8px 12px}
+.form-grid input,.form-grid textarea,.form-grid label,.form-grid fieldset{min-width:0;max-width:100%;box-sizing:border-box}
+.form-grid input:not([type=checkbox]):not([type=radio]){width:100%}
+.form-grid .beta-control{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start}
+.form-grid label:has(.beta-control)>.required,.form-grid label:has(.beta-control)>.optional{position:static;float:right}
+.form-grid label:has(.beta-control){line-height:1.5}
+.beta-control{margin-top:6px}
+#contractCreate{white-space:normal;line-height:1.4;height:auto;max-width:100%}
+dialog .modal-actions{flex-wrap:wrap}
+dialog .modal-actions button{white-space:normal;line-height:1.4;max-width:100%;min-width:0;padding-top:8px;padding-bottom:8px}
+.payment-summary{grid-template-columns:repeat(3,minmax(0,1fr))}
+.payment-summary span{min-width:0}
+fieldset label{min-height:44px}
+@media(max-width:760px){
+ .form-grid:has(.beta-control){grid-template-columns:minmax(0,1fr)}
+ .filters>.site-menu-control{flex:1 1 42%}
+ .filters>.site-menu-control>.quiet{width:100%}
+ button.quiet,button.primary,.segmented button,#all,#yearButton,summary{min-height:44px}
+ .calendar-controls .quiet,.calendar-controls .cal-jump-btn{min-height:44px}
+ .quick-actions>button,.quick-actions>button:last-child{min-height:56px;padding:10px 12px}
+ .quick-actions small{display:none}
+ .beta-picker{max-width:calc(100vw - 8px)}
+}
+
+/* Shared site controls: intrinsic widths, clear labels and reachable actions. */
+.site-choices{display:flex;flex-wrap:wrap;gap:4px 16px;min-width:0;margin:0;padding:8px;border:1px solid var(--line);border-radius:6px}
+.site-choices legend{font-size:12px;padding:0 4px}
+.site-choices label,fieldset label:has(input[type=checkbox]){display:flex;align-items:center;gap:8px;min-height:44px;min-width:44px}
+.site-choices input[type=radio],input[type=checkbox]{appearance:none;flex:0 0 20px;width:20px;height:20px!important;min-height:20px!important;padding:0;border:1px solid var(--muted);border-radius:3px;background:#17191a;margin:0}
+.site-choices input:checked,input[type=checkbox]:checked{background:var(--gold,#cfb25d);box-shadow:inset 0 0 0 4px #202224}
+.site-choices input:focus-visible,input[type=checkbox]:focus-visible{outline:2px solid #cfb25d;outline-offset:3px}
+.site-menu{display:inline-flex;min-width:0;max-width:100%}.site-menu>button{white-space:normal;text-align:left;max-width:100%;min-height:44px}
+.site-options{display:none}.site-options[open]{display:flex;flex-direction:column;gap:6px;padding:12px}.site-options button{flex-shrink:0;text-align:left;padding:8px 12px}
+.form-grid>label:has(>.site-choices){grid-column:1/-1;font-size:0}.form-grid>label:has(>.site-choices)>fieldset{font-size:13px}
+.form-grid>label:has(>.site-choices)>.required,.form-grid>label:has(>.site-choices)>.optional{font-size:11px}
+.beta-control{align-items:start}.beta-control input{width:100%;flex-basis:100%}.beta-control button{flex:0 0 auto}
+#contractCreate{white-space:normal;max-width:100%}
+#contractBusyNote{font-size:12px;line-height:1.6;color:var(--muted)}
+button{word-break:normal;overflow-wrap:normal}dialog .modal-actions{flex-wrap:wrap}
+@media(max-width:760px){#all,#yearButton,button.quiet,.text-button,summary{min-height:44px}summary{display:flex;align-items:center}.form-grid{grid-template-columns:minmax(0,1fr)}.form-grid label{grid-column:1/-1}.site-menu>button{font-size:16px}.filters>.site-menu{flex:1 1 140px}.beta-picker{max-width:calc(100vw - 8px)}.mobile-nav{padding-bottom:env(safe-area-inset-bottom)}main{padding-bottom:calc(90px + env(safe-area-inset-bottom))}}
+/* Keep enlarged choice groups in normal dialog flow. */
+dialog{box-sizing:border-box;max-width:min(570px,calc(100vw - 24px));overflow:auto}
+dialog .modal-actions{position:static;margin-bottom:0}
+.site-menu{width:auto;padding:0}
+.site-choices label{white-space:nowrap}
+.payment-history>div{flex-wrap:wrap;gap:10px}
+.payment-history>div>*{min-width:0;max-width:100%}
+.payment-history small{white-space:normal;overflow-wrap:normal}
+.payment-history strong{white-space:normal}
+/* Explicit target sizes override earlier compact component rules. */
+.attention-item button{height:44px;min-height:44px;max-height:44px;align-self:center;flex-shrink:0}
+.quick-actions>button,.quick-actions>button:last-child{min-height:56px;max-height:56px;padding:8px 12px}
+.quick-actions small{margin-top:2px}
+@media(max-width:760px){
+ .mobile-nav button,.mobile-nav button.active,.mobile-nav #mobileAdd{min-height:44px}
+ .optional-details summary,dialog summary{min-height:44px}
+ .actions-cell .quiet,.table-footer .quiet,.calendar-controls .primary{min-height:44px}
+ .calendar-main,.calendar-month-pane{width:calc(100vw - 8px);max-width:none;margin-left:calc((100% - (100vw - 8px))/2);padding:0}
+ .calendar-grid,.calendar-month-grid{column-gap:0}
+ dialog.beta-picker{width:350px;max-width:calc(100vw - 8px);padding:0;border:0}
+}
+@media(min-width:761px) and (max-width:1024px){
+ .table-wrap{overflow:visible}.table-wrap table,.table-wrap tbody{display:block;width:100%;white-space:normal}.table-wrap thead{display:none}
+ .table-wrap tr{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:18px;border-bottom:1px solid var(--line)}
+ .table-wrap td{display:block;min-width:0;border:0;padding:0}.table-wrap td:before{content:attr(data-label);display:block;color:var(--muted);margin-bottom:6px}
+ .table-wrap .guest-cell,.table-wrap .event-cell,.table-wrap .actions-cell{grid-column:1/-1}.table-wrap .actions-cell{display:flex;gap:10px}
+ .table-wrap .actions-cell:before{display:none}
+}
+@media(max-width:760px){#calBookSelectedBtn,#paymentSearch{min-height:44px}}
+@media(min-width:761px){.form-grid>button.wide{width:fit-content;justify-self:start}}
+.optional-details summary{gap:8px;flex-wrap:wrap}
+@media(min-width:761px){#betaContinue,#betaReminderCopy{width:fit-content;justify-self:start}}
+input[type=search]{appearance:none;-webkit-appearance:none}
+input[type=search]::-webkit-search-cancel-button,input[type=search]::-webkit-search-decoration{-webkit-appearance:none}
+textarea{resize:none}

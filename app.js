@@ -514,7 +514,7 @@ async function createContractPdf(event) {
     if(initial>total)throw Error('The initial amount cannot exceed the agreed price.');
     if(r.security&&(!/^\d{1,2}(\.\d{1,2})?$/.test(f.securityHours.value)||Number(f.securityHours.value)<=0||Number(f.securityHours.value)>24))throw Error('Enter security hours between 0 and 24.');
     if(contractDeadline(r.date)<today()&&!values.confirmSchedule)throw Error('Confirm the payment schedule for this event.');
-    setBusy(true,form);$('#contractCreate').textContent=(BETA&&LIVE)?'Creating and saving… This may take 30 seconds.':'Creating…';
+    setBusy(true,form);let busyNote=$('#contractBusyNote');if(!busyNote){busyNote=document.createElement('p');busyNote.id='contractBusyNote';busyNote.setAttribute('role','status');$('#contractCreate').closest('.modal-actions').before(busyNote);}busyNote.textContent='This may take 30 seconds.';busyNote.hidden=false;$('#contractCreate').textContent=(BETA&&LIVE)?'Creating and saving…':'Creating…';
     const inputs=[...form.querySelectorAll('input,select,textarea')];inputs.forEach(e=>e.disabled=true);
     let result;
     try {result=await rpc('createContract',contractId,values,...(BETA&&LIVE?[{requestId:contractSaveRequest,expectedRevision:r.revision}]:[]));} finally {inputs.forEach(e=>e.disabled=false);}
@@ -525,7 +525,7 @@ async function createContractPdf(event) {
     clearContractPdf();contractPdf=new File([bytes],result.filename,{type:'application/pdf'});
     $('#contractInputs').hidden=true;$('#contractFile').textContent=result.filename;$('#contractFile').hidden=false;$('#contractCreate').hidden=true;$('#contractShare').hidden=false;$('#contractCancel').textContent='Done';dirty=false;
   }catch(error){formError('#contractError',error.message);}
-  finally{setBusy(false,form);$('#contractCreate').textContent='Create PDF';}
+  finally{if($('#contractBusyNote'))$('#contractBusyNote').hidden=true;setBusy(false,form);$('#contractCreate').textContent='Create PDF';}
 }
 async function shareContractPdf() {
   if(!contractPdf||busy)return;formError('#contractError','');
