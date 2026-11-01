@@ -292,6 +292,9 @@ dialog .modal-actions{position:static;margin-bottom:0}
  .actions-cell .quiet,.table-footer .quiet,.calendar-controls .primary{min-height:44px}
  .calendar-main,.calendar-month-pane{width:calc(100vw - 8px);max-width:none;margin-left:calc((100% - (100vw - 8px))/2);padding:0}
  .calendar-grid,.calendar-month-grid{column-gap:0}
+ /* The month runs edge to edge for tap size, so its card can't draw side borders. */
+ .card.calendar-view{border-left:0;border-right:0;border-radius:0;background:transparent}
+ .calendar-month-pane .calendar-legend{padding-left:12px;padding-right:12px}
  dialog.beta-picker{width:350px;max-width:calc(100vw - 8px);padding:0;border:0}
 }
 @media(min-width:761px) and (max-width:1024px){
@@ -308,3 +311,11 @@ dialog .modal-actions{position:static;margin-bottom:0}
 input[type=search]{appearance:none;-webkit-appearance:none}
 input[type=search]::-webkit-search-cancel-button,input[type=search]::-webkit-search-decoration{-webkit-appearance:none}
 textarea{resize:none}
+/* Quick taps shouldn't zoom the page; pinch zoom still works. */
+html,body,button,a,input,select,textarea,label,summary,dialog{touch-action:manipulation}
+/* The site draws under the status bar, so windows must stay inside the visible area. */
+@media(max-width:760px){
+ dialog,dialog.beta-picker{top:env(safe-area-inset-top,0px);bottom:env(safe-area-inset-bottom,0px);max-height:calc(100dvh - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px) - 16px)}
+}
+/* Windows focus their close button on opening. Keep the ring for keyboards, not touch. */
+@media(hover:none){dialog .close:focus-visible{outline:0}}
