@@ -123,9 +123,9 @@ async function load() {
   try {
     if (BETA) {
       const response=await rpc('getLedger');records=response.records.map(normalize);serverToday=response.today;
-      if(LIVE){if(API&&response.actor)store(localStorage,'oryan-email',response.actor);accountEmail=response.actor||'';renderAccount();$('#reset').hidden=true;$$('.save-destination').forEach(e=>e.textContent='Saved to Google Sheets');}
+      if(LIVE){if(API&&response.actor)store(localStorage,'oryan-email',response.actor);accountEmail=response.actor||'';renderAccount();ledgerOwnerControl(response.isOwner);$('#reset').hidden=true;$$('.save-destination').forEach(e=>e.textContent='Saved to Google Sheets');}
     } else if (LIVE) {
-      const response=await rpc('getLedger'); records=response.records.map(normalize); serverToday=response.today; if(API&&response.actor)store(localStorage,'oryan-email',response.actor);accountEmail=response.actor||'';renderAccount();
+      const response=await rpc('getLedger'); records=response.records.map(normalize); serverToday=response.today; if(API&&response.actor)store(localStorage,'oryan-email',response.actor);accountEmail=response.actor||'';renderAccount();ledgerOwnerControl(response.isOwner);
       $('#modeBanner').innerHTML=`<span>${ICONS.check}</span><div><b>Connected to Google Sheets.</b> Bookings and payments save to the app tabs. The original ledger is preserved.</div>`;
       $('#reset').hidden=true; $$('.save-destination').forEach(e=>e.textContent='Saved to Google Sheets');
     } else {
@@ -446,7 +446,7 @@ function openDetails(id) {
   const history=[...(r.openingPaid?[{amount:r.openingPaid,date:r.openingDate,method:r.imported?'Historical payments (combined)':r.openingMethod||'Initial payment',note:r.imported?'Imported as a total. Individual payment dates and methods were not available.':'Initial payment at booking'}]:[]),...r.payments];
   $('#detailContent').innerHTML=`<p class="modal-sub">${esc(typeLabel(r.type))} · ${dateLabel(r.date)} · #${esc(r.contract)}</p>${r.phone?`<p><a class="phone-link" href="tel:${esc(r.phone.replace(/[^+\d]/g,''))}">Call ${esc(r.phone)}</a></p>`:''}<div class="payment-summary"><span>Agreed price<b>${r.total==null?'Not entered':money(r.total)}</b></span><span>Paid<b>${money(r.paid)}</b></span><span>Still due<b${r.cancelled&&!BETA||eventCharge(r)==null?' class="summary-text"':''}>${r.cancelled&&!BETA?'Cancelled':eventCharge(r)==null?(BETA?'Review charge':'Review price'):money(balance(r))}</b></span></div>${r.total==null?`<p class="review-note">The agreed price was blank in the original ledger. Payments are preserved, but the balance and any credit are unknown. Confirm the contract, cancellation, and deposit status, then use Manage booking to reconcile the imported balance.</p>`:review(r)&&!(r.cancelled&&!r.imported)?`<p class="review-note">Imported balance needs review. ${r.sheetBalance == null ? 'The original listed balance was missing.' : 'The source listed '+money(r.sheetBalance)+'; the difference from the original cost minus paid is '+money(r.importedDifference)+'.'} New payments do not clear this flag.</p>`:''}${r.total!=null&&r.paid>r.total?`<p class="review-note">Overpayment: ${money(Math.round((r.paid-r.total)*100)/100)}. Check the refundable security deposit.</p>`:''}<dl class="booking-facts"><dt>Balance due</dt><dd>${r.due?dateLabel(r.due):'No due date set'}</dd><dt>Included extras</dt><dd>${(Ledger.extrasList?Ledger.extrasList(r):[r.covers?'Covers+':'',r.projector?'Projector':'',(r.audio||r.sound)?'Audio':'',r.bar?'Bar':'',r.security?'Security':''].filter(Boolean)).join(', ')||'None recorded'}</dd><dt>Security deposit status</dt><dd>${esc(r.deposit||'Unknown')}</dd></dl>${r.notes?`<h3>Notes</h3><p class="booking-notes">${esc(r.notes)}</p>`:''}<h3>Payment history</h3><div class="payment-history">${history.length?history.map(p=>`<div><span><b>${esc(p.method||'Not recorded')}</b><small>${p.date?dateLabel(p.date):'Date not available'}</small>${p.note?`<small>${esc(p.note)}</small>`:''}</span><strong>${money(p.amount)}</strong></div>`).join(''):'<p class="empty-copy">No payments recorded yet.</p>'}</div>`;
   if(r.cancelled)$('#detailContent').insertAdjacentHTML('afterbegin',`<p class="review-note"><b>Cancelled</b> · ${esc(r.cancelledAt?.slice(0,10)||'')}<br>This booking no longer reserves the date. Booking and payment history are preserved. Refunds and any cancellation charges must be reconciled separately.</p>`);
-  $('#detailContract').hidden=!LIVE||!!r.cancelled;$('#detailPayment').hidden=!!r.cancelled||balance(r)===0;if(BETA)BetaUI.details(r);$('#detailDialog').showModal();
+  $('#detailContract').hidden=!LIVE||!!r.cancelled;$('#detailPayment').hidden=!!r.cancelled||balance(r)===0;if(BETA)BetaUI.details(r);$('#detailDialog').showModal();if(BETA&&LIVE)showSavedDocuments(id);
 }
 function openCancelBooking() {
   const r=records.find(x=>x.id===detailId);if(busy||!r||r.cancelled||r.type==='Blackout'||needsSignIn())return;
@@ -472,6 +472,7 @@ function renderPicker() {
   if(choices.length>30)$('#paymentChoices').innerHTML+='<p class="empty-copy">Showing 30 matches. Search for a name, phone, or contract to narrow the list.</p>';
   $$('[data-choose]').forEach(b=>b.onclick=()=>{$('#pickerDialog').close();openPayment(b.dataset.choose)});
 }
+let contractSaveRequest = null;
 let contractId = null, contractPdf = null, contractUrl = null, contractInitialChanged = false;
 function contractDeadline(date) { const d=new Date(date+'T12:00:00Z');d.setUTCDate(d.getUTCDate()-14);return d.toISOString().slice(0,10); }
 function clearContractPdf() {
@@ -487,7 +488,7 @@ function contractSchedule() {
 }
 function openContract() {
   const r=records.find(x=>x.id===detailId);if(!LIVE||!r||r.cancelled||r.type==='Blackout'||needsSignIn())return;
-  contractId=r.id;clearContractPdf();contractInitialChanged=false;dirty=false;
+  contractSaveRequest='contract-'+crypto.randomUUID();contractId=r.id;clearContractPdf();contractInitialChanged=false;dirty=false;
   const form=$('#contractForm');form.reset();form.elements.phone.value=r.phone.slice(0,40);
   $('#contractGuest').textContent=`${r.client} · ${dateLabel(r.date)} · #${r.contract}`;
   $('#contractSummary').innerHTML=`<span>Agreed price<b>${r.total==null?'Not entered':money(r.total)}</b></span><span>Recorded payments<b>${money(r.paid)}</b></span><span>Selected extras<b>${esc(Ledger.extrasList(r).join(', ')||'None')}</b></span>`;
@@ -509,13 +510,14 @@ async function createContractPdf(event) {
     if(initial>total)throw Error('The initial amount cannot exceed the agreed price.');
     if(r.security&&(!/^\d{1,2}(\.\d{1,2})?$/.test(f.securityHours.value)||Number(f.securityHours.value)<=0||Number(f.securityHours.value)>24))throw Error('Enter security hours between 0 and 24.');
     if(contractDeadline(r.date)<today()&&!values.confirmSchedule)throw Error('Confirm the payment schedule for this event.');
-    setBusy(true,form);$('#contractCreate').textContent='Creating…';
+    setBusy(true,form);$('#contractCreate').textContent=(BETA&&LIVE)?'Creating and saving… This may take 30 seconds.':'Creating…';
     const inputs=[...form.querySelectorAll('input,select,textarea')];inputs.forEach(e=>e.disabled=true);
     let result;
-    try {result=await rpc('createContract',contractId,values);} finally {inputs.forEach(e=>e.disabled=false);}
+    try {result=await rpc('createContract',contractId,values,...(BETA&&LIVE?[{requestId:contractSaveRequest,expectedRevision:r.revision}]:[]));} finally {inputs.forEach(e=>e.disabled=false);}
     if(!result||typeof result.base64!=='string'||result.base64.length>20000000||typeof result.filename!=='string')throw Error('The PDF could not be opened. Try again.');
     const bytes=Uint8Array.from(atob(result.base64),c=>c.charCodeAt(0));
     if(new TextDecoder().decode(bytes.slice(0,5))!=='%PDF-')throw Error('The PDF could not be opened. Try again.');
+    if(result.saveError)formError('#contractError',result.saveError);
     clearContractPdf();contractPdf=new File([bytes],result.filename,{type:'application/pdf'});
     $('#contractInputs').hidden=true;$('#contractFile').textContent=result.filename;$('#contractFile').hidden=false;$('#contractCreate').hidden=true;$('#contractShare').hidden=false;$('#contractCancel').textContent='Done';dirty=false;
   }catch(error){formError('#contractError',error.message);}
@@ -738,3 +740,17 @@ window.addEventListener('beforeunload',e=>{if(dirty){e.preventDefault();e.return
 setView('overview',false);
 const signInProblem=captureToken();
 if(signInProblem){$('#loadError').hidden=false;$('#loadError p').textContent=signInProblem;$('#retryLoad').textContent='Sign in with Google';$('#retryLoad').onclick=()=>signIn();}else load();
+
+async function showSavedDocuments(id){
+  const section=document.createElement('section');section.innerHTML='<h3>Saved copies</h3><p role="status">Loading saved copies…</p>';$('#detailContent').append(section);
+  try{
+    const rows=await rpc('listSavedDocuments',id);if(detailId!==id||!section.isConnected)return;if(rows.unavailable){section.innerHTML="<h3>Saved copies</h3><p>Saved copies aren't available yet.</p>";return;}
+    section.innerHTML='<h3>Saved copies</h3><p class="form-note">Receipts save after money is recorded. Pending copies can be retried by the original saver.</p>';
+    if(!rows.length)section.insertAdjacentHTML('beforeend','<p>No saved copies yet.</p>');
+    for(const row of rows){const line=document.createElement('p'),button=document.createElement('button');button.type='button';button.className='quiet';button.textContent=row.pending?'Retry save':'Open PDF';line.textContent=row.documentType+' · '+row.createdAt.slice(0,10)+(row.attention?' · Receipt needs attention ':row.pending?' · Saving pending ':' · Saved ');line.append(button);section.append(line);
+      button.onclick=async()=>{button.disabled=true;button.textContent=row.pending?'Saving… This may take 30 seconds.':'Opening…';try{const pdf=await rpc(row.pending?'retrySavedDocument':'getSavedDocument',id,row.requestId);if(pdf.unavailable||pdf.complete){button.textContent=pdf.complete?'Saved — reopen booking':"Saved copies aren't available yet.";return;}const bytes=Uint8Array.from(atob(pdf.base64),c=>c.charCodeAt(0)),url=URL.createObjectURL(new Blob([bytes],{type:'application/pdf'}));const a=document.createElement('a');a.href=url;a.download=pdf.filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),60000);section.remove();showSavedDocuments(id);}catch(_){button.textContent='Save unavailable — retry';button.disabled=false;}};
+    }
+  }catch(_){section.innerHTML='<h3>Saved copies</h3><p>Saved copies unavailable. Reopen this booking to retry. Payments remain recorded.</p>';}
+}
+
+function ledgerOwnerControl(owner){let button=document.querySelector('#ledgerAudience');if(!owner){if(button)button.remove();return;}if(button)return;button=document.createElement('button');button.id='ledgerAudience';button.className='quiet';button.textContent='Saved-copy setup';document.querySelector('#savedCopies')?.append(button);if(!button.isConnected)document.querySelector('aside')?.append(button);button.onclick=async()=>{try{button.textContent='Audience: '+await rpc('getLedgerContractAudience');}catch(_){button.textContent='Audience unavailable';}};}
