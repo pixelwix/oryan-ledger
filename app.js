@@ -36,20 +36,24 @@ function storedToken(minMs = 60000) {
   try { const t = JSON.parse(read(sessionStorage, 'oryan-auth')); return t && t.expires - Date.now() > minMs ? t : null; } catch { return null; }
 }
 function signIn(prompt) {
-  const state = uuid(); store(sessionStorage, 'oryan-auth-state', state);
-  const params = new URLSearchParams({client_id:API.clientId, redirect_uri:location.origin + location.pathname, response_type:'token', scope:API.scopes.join(' '), include_granted_scopes:'true', state});
+  const state = uuid(), nonce = uuid(); store(sessionStorage, 'oryan-auth-state', state); store(sessionStorage, 'oryan-auth-nonce', nonce);
+  const params = new URLSearchParams({client_id:API.clientId, redirect_uri:location.origin + location.pathname, response_type:'token id_token', scope:API.scopes.join(' '), include_granted_scopes:'true', state, nonce});
   const hint = read(localStorage, 'oryan-email'); if (hint) params.set('login_hint', hint);
   prompt = prompt || (read(localStorage, 'oryan-signed-out') ? 'select_account' : '');
   if (prompt) params.set('prompt', prompt);
   location.assign('https://accounts.google.com/o/oauth2/v2/auth?' + params);
 }
+// Saved copies need this; the ledger doesn't. A missing or mismatched token only leaves copies pending, so it never blocks sign-in.
+function verifiedIdToken(token, nonce) {
+  try { const part = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'); return nonce && JSON.parse(atob(part)).nonce === nonce ? token : ''; } catch { return ''; }
+}
 function captureToken() {
   if (!API || !/access_token|error=/.test(location.hash)) return '';
-  const h = new URLSearchParams(location.hash.slice(1)), state = read(sessionStorage, 'oryan-auth-state');
-  history.replaceState(null, '', location.pathname + location.search); store(sessionStorage, 'oryan-auth-state');
+  const h = new URLSearchParams(location.hash.slice(1)), state = read(sessionStorage, 'oryan-auth-state'), nonce = read(sessionStorage, 'oryan-auth-nonce');
+  history.replaceState(null, '', location.pathname + location.search); store(sessionStorage, 'oryan-auth-state'); store(sessionStorage, 'oryan-auth-nonce');
   if (h.get('error')) return 'Google sign-in did not finish. Sign in to continue.';
   if (!state || h.get('state') !== state) return 'Sign-in could not be verified. Sign in again.';
-  store(sessionStorage, 'oryan-auth', JSON.stringify({token:h.get('access_token'), expires:Date.now() + Number(h.get('expires_in') || 3600) * 1000}));
+  store(sessionStorage, 'oryan-auth', JSON.stringify({token:h.get('access_token'), idToken:verifiedIdToken(h.get('id_token') || '', nonce), expires:Date.now() + Number(h.get('expires_in') || 3600) * 1000}));
   store(localStorage, 'oryan-signed-out');
   return '';
 }
@@ -123,9 +127,9 @@ async function load() {
   try {
     if (BETA) {
       const response=await rpc('getLedger');records=response.records.map(normalize);serverToday=response.today;
-      if(LIVE){if(API&&response.actor)store(localStorage,'oryan-email',response.actor);accountEmail=response.actor||'';renderAccount();ledgerOwnerControl(response.isOwner);$('#reset').hidden=true;$$('.save-destination').forEach(e=>e.textContent='Saved to Google Sheets');}
+      if(LIVE){if(API&&response.actor)store(localStorage,'oryan-email',response.actor);accountEmail=response.actor||'';renderAccount();$('#reset').hidden=true;$$('.save-destination').forEach(e=>e.textContent='Saved to Google Sheets');}
     } else if (LIVE) {
-      const response=await rpc('getLedger'); records=response.records.map(normalize); serverToday=response.today; if(API&&response.actor)store(localStorage,'oryan-email',response.actor);accountEmail=response.actor||'';renderAccount();ledgerOwnerControl(response.isOwner);
+      const response=await rpc('getLedger'); records=response.records.map(normalize); serverToday=response.today; if(API&&response.actor)store(localStorage,'oryan-email',response.actor);accountEmail=response.actor||'';renderAccount();
       $('#modeBanner').innerHTML=`<span>${ICONS.check}</span><div><b>Connected to Google Sheets.</b> Bookings and payments save to the app tabs. The original ledger is preserved.</div>`;
       $('#reset').hidden=true; $$('.save-destination').forEach(e=>e.textContent='Saved to Google Sheets');
     } else {
@@ -752,5 +756,3 @@ async function showSavedDocuments(id){
     }
   }catch(_){section.innerHTML='<h3>Saved copies</h3><p>Saved copies unavailable. Reopen this booking to retry. Payments remain recorded.</p>';}
 }
-
-function ledgerOwnerControl(owner){let button=document.querySelector('#ledgerAudience');if(!owner){if(button)button.remove();return;}if(button)return;button=document.createElement('button');button.id='ledgerAudience';button.className='quiet';button.textContent='Saved-copy setup';document.querySelector('#savedCopies')?.append(button);if(!button.isConnected)document.querySelector('aside')?.append(button);button.onclick=async()=>{try{button.textContent='Audience: '+await rpc('getLedgerContractAudience');}catch(_){button.textContent='Audience unavailable';}};}
