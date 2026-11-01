@@ -33,7 +33,14 @@ const store = (area, key, value) => { try { value === undefined ? area.removeIte
 const read = (area, key) => { try { return area.getItem(key); } catch { return null; } };
 function signInError(message) { return Object.assign(Error(message), {signIn:true}); }
 function storedToken(minMs = 60000) {
-  try { const t = JSON.parse(read(sessionStorage, 'oryan-auth')); return t && t.expires - Date.now() > minMs ? t : null; } catch { return null; }
+  try { const t = JSON.parse(read(localStorage, 'oryan-auth') || read(sessionStorage, 'oryan-auth')); return t && t.expires - Date.now() > minMs ? t : null; } catch { return null; }
+}
+function clearSignIn() { store(localStorage, 'oryan-auth'); store(sessionStorage, 'oryan-auth'); }
+// Renews without a screen when Google is still logged in. Tries once per minute, so a refusal can't loop.
+function silentSignIn() {
+  if (!API || storedToken() || read(localStorage, 'oryan-signed-out') || !read(localStorage, 'oryan-email')) return false;
+  if (Date.now() - Number(read(sessionStorage, 'oryan-silent-tried') || 0) < 60000) return false;
+  store(sessionStorage, 'oryan-silent-tried', String(Date.now())); signIn('none'); return true;
 }
 function signIn(prompt) {
   const state = uuid(), nonce = uuid(); store(sessionStorage, 'oryan-auth-state', state); store(sessionStorage, 'oryan-auth-nonce', nonce);
@@ -51,9 +58,11 @@ function captureToken() {
   if (!API || !/access_token|error=/.test(location.hash)) return '';
   const h = new URLSearchParams(location.hash.slice(1)), state = read(sessionStorage, 'oryan-auth-state'), nonce = read(sessionStorage, 'oryan-auth-nonce');
   history.replaceState(null, '', location.pathname + location.search); store(sessionStorage, 'oryan-auth-state'); store(sessionStorage, 'oryan-auth-nonce');
+  if (['interaction_required', 'login_required', 'consent_required', 'account_selection_required'].includes(h.get('error'))) return 'Sign in with your Google account to continue.';
   if (h.get('error')) return 'Google sign-in did not finish. Sign in to continue.';
   if (!state || h.get('state') !== state) return 'Sign-in could not be verified. Sign in again.';
-  store(sessionStorage, 'oryan-auth', JSON.stringify({token:h.get('access_token'), idToken:verifiedIdToken(h.get('id_token') || '', nonce), expires:Date.now() + Number(h.get('expires_in') || 3600) * 1000}));
+  store(sessionStorage, 'oryan-auth'); store(sessionStorage, 'oryan-silent-tried');
+  store(localStorage, 'oryan-auth', JSON.stringify({token:h.get('access_token'), idToken:verifiedIdToken(h.get('id_token') || '', nonce), expires:Date.now() + Number(h.get('expires_in') || 3600) * 1000}));
   store(localStorage, 'oryan-signed-out');
   return '';
 }
@@ -65,7 +74,7 @@ async function apiRun(name, args) {
   try { response = await fetch(`https://script.googleapis.com/v1/scripts/${API.scriptId}:run`, {method:'POST', headers:{Authorization:'Bearer ' + t.token, 'Content-Type':'application/json'}, body:JSON.stringify({function:name, parameters:args})}); }
   catch { throw Error('Could not reach Google Sheets. Check the connection and try again.'); }
   const data = await response.json().catch(() => ({}));
-  if (response.status === 401) { store(sessionStorage, 'oryan-auth'); throw signInError('Your Google sign-in expired. Sign in again.'); }
+  if (response.status === 401) { clearSignIn(); throw signInError('Your Google sign-in expired. Sign in again.'); }
   if (data.error) throw Error(data.error.details?.[0]?.errorMessage || data.error.message || 'Could not reach Google Sheets. Try again.');
   return data.response?.result;
 }
@@ -90,7 +99,7 @@ function openAccount() {
 }
 // Ends this device's ledger session. Google's own session and the app's consent are left alone, so the next sign-in only has to pick an account.
 function signOut() {
-  store(sessionStorage,'oryan-auth');store(localStorage,'oryan-email');store(localStorage,'oryan-signed-out','1');
+  clearSignIn();store(localStorage,'oryan-email');store(localStorage,'oryan-signed-out','1');
   dirty=false;location.reload();
 }
 // The Sheet keeps the stored type 'Blackout' so existing rows still work; people see 'Blocked date'.
@@ -143,6 +152,7 @@ async function load() {
     ['#newBooking','#mobileAdd','#quickPayment'].forEach(s=>$(s).disabled=false);
   } catch(e) {
     $('#loadError').hidden=false; $('#loadError p').textContent=e.message;
+    if(e.signIn&&silentSignIn())return;
     $('#retryLoad').textContent=e.signIn?'Sign in with Google':'Try again'; $('#retryLoad').onclick=e.signIn?()=>signIn():load;
     $('#connectionStatus').textContent=LIVE?'Google Sheets · could not load':'Demo · could not load';
   }
@@ -743,7 +753,7 @@ $('#export').onclick=exportCsv;$('#reset').onclick=async()=>{if(!await askConfir
 window.addEventListener('beforeunload',e=>{if(dirty){e.preventDefault();e.returnValue='';}});
 setView('overview',false);
 const signInProblem=captureToken();
-if(signInProblem){$('#loadError').hidden=false;$('#loadError p').textContent=signInProblem;$('#retryLoad').textContent='Sign in with Google';$('#retryLoad').onclick=()=>signIn();}else load();
+if(signInProblem){$('#loadError').hidden=false;$('#loadError p').textContent=signInProblem;$('#retryLoad').textContent='Sign in with Google';$('#retryLoad').onclick=()=>signIn();}else if(!silentSignIn())load();
 
 async function showSavedDocuments(id){
   const section=document.createElement('section');section.innerHTML='<h3>Saved copies</h3><p role="status">Loading saved copies…</p>';$('#detailContent').append(section);
