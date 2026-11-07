@@ -187,21 +187,26 @@ function renderCharts(data) {
   $('#types').innerHTML=sorted.slice(0,5).map(([t,n])=>`<div class="type"><span>${esc(t)}</span><div class="track"><span style="width:${n/(sorted[0]?.[1]||1)*100}%"></span></div><span>${n}</span></div>`).join('')+'<small class="empty-copy">Top event types in this selection.</small>';
 }
 function renderAttention(data) {
-  const missing=data.filter(r=>r.total==null).length;
-  const duplicateDays=[...new Set(data.filter(r=>activeRecords().filter(other=>other.date===r.date).length>1).map(r=>r.date))].length;
-  const late=data.filter(r=>balance(r)>0&&r.due&&r.due<today()).length, mismatch=data.filter(r=>r.total!=null&&review(r)).length, credit=data.filter(r=>r.total!=null&&r.paid>r.total).length;
-  $('#attention').innerHTML=[[plural(duplicateDays,'date has multiple bookings','dates have multiple bookings'),'Imported history needs review. New bookings on an occupied date are blocked.','duplicate'],[plural(missing,'booking needs an agreed price','bookings need an agreed price'),'Payments are preserved; balance and credit stay unknown until the price is entered.','price'],[plural(late,'booking past its due date','bookings past their due date'),'Check the recorded due dates before following up.','overdue'],[plural(mismatch,'imported balance to review','imported balances to review'),'Original cost minus original payments differs from the listed balance.','balanceReview'],[plural(credit,'booking shows an overpayment','bookings show an overpayment'),'Check whether extra money was a refundable security deposit.','credit']].map(([t,n,f])=>`<div class="attention-item"><span>${f==='overdue'?ICONS.clock:ICONS.alert}</span><div><b>${t}</b><p>${n}</p></div><button aria-label="View ${esc(t)}" data-filter="${f}">${ICONS.chevronRight}</button></div>`).join('');
+  // Settled bookings (past events the owner has closed) never appear here; their true numbers stay in their own detail.
+  const live=data.filter(r=>!r.settled), openRecords=activeRecords().filter(r=>!r.settled);
+  const missing=live.filter(r=>r.total==null).length;
+  const duplicateDays=[...new Set(live.filter(r=>openRecords.filter(other=>other.date===r.date).length>1).map(r=>r.date))].length;
+  const late=live.filter(r=>balance(r)>0&&r.due&&r.due<today()).length, mismatch=live.filter(r=>r.total!=null&&review(r)).length, credit=live.filter(r=>r.total!=null&&r.paid>r.total).length;
+  const rows=[[duplicateDays,plural(duplicateDays,'date has multiple bookings','dates have multiple bookings'),'Imported history needs review. New bookings on an occupied date are blocked.','duplicate'],[missing,plural(missing,'booking needs an agreed price','bookings need an agreed price'),'Payments are preserved; balance and credit stay unknown until the price is entered.','price'],[late,plural(late,'booking past its due date','bookings past their due date'),'Check the recorded due dates before following up.','overdue'],[mismatch,plural(mismatch,'imported balance to review','imported balances to review'),'Original cost minus original payments differs from the listed balance.','balanceReview'],[credit,plural(credit,'booking shows an overpayment','bookings show an overpayment'),'Check whether extra money was a refundable security deposit.','credit']].filter(([n])=>n>0);
+  $('#attention').innerHTML=rows.length?rows.map(([n,t,d,f])=>`<div class="attention-item"><span>${f==='overdue'?ICONS.clock:ICONS.alert}</span><div><b>${t}</b><p>${d}</p></div><button aria-label="View ${esc(t)}" data-filter="${f}">${ICONS.chevronRight}</button></div>`).join(''):`<div class="attention-item attention-clear"><span>${ICONS.check}</span><div><b>Nothing needs attention</b><p>Past events are settled and no upcoming booking has an open question.</p></div></div>`;
   $$('[data-filter]').forEach(b=>b.onclick=()=>{setView('bookings',false);$('#status').value=b.dataset.filter;$('#dateRange').value='all';page=0;renderTable();$('.ledger').scrollIntoView({behavior:'smooth'})});
 }
 function filtered() {
   const q=$('#search').value.trim().toLowerCase(), s=$('#status').value, range=$('#dateRange').value;
   const selection=s==='cancelled'?records.filter(r=>r.cancelled&&(scope==='all'||r.date.startsWith($('#year').value))):BETA&&['balance','paid','credit','review','price'].includes(s)?records.filter(r=>r.type!=='Blackout'&&(scope==='all'||r.date.startsWith($('#year').value))):base();
   const result=selection.filter(r=>[r.client,typeLabel(r.type),r.contract,r.phone].join(' ').toLowerCase().includes(q))
-    .filter(r=>s==='cancelled'||s==='all'||s==='balance'&&balance(r)>0||s==='paid'&&eventCharge(r)!=null&&balance(r)===0||s==='duplicate'&&activeRecords().filter(other=>other.date===r.date).length>1||s==='review'&&review(r)||s==='balanceReview'&&eventCharge(r)!=null&&review(r)||s==='price'&&eventCharge(r)==null||s==='credit'&&eventCharge(r)!=null&&r.paid>eventCharge(r)||s==='overdue'&&balance(r)>0&&r.due&&r.due<today())
+    .filter(r=>!(r.settled&&['duplicate','price','overdue','balanceReview','credit','review'].includes(s)))
+    .filter(r=>s==='settled'?!!r.settled:s==='cancelled'||s==='all'||s==='balance'&&balance(r)>0||s==='paid'&&eventCharge(r)!=null&&balance(r)===0||s==='duplicate'&&activeRecords().filter(other=>other.date===r.date).length>1||s==='review'&&review(r)||s==='balanceReview'&&eventCharge(r)!=null&&review(r)||s==='price'&&eventCharge(r)==null||s==='credit'&&eventCharge(r)!=null&&r.paid>eventCharge(r)||s==='overdue'&&balance(r)>0&&r.due&&r.due<today())
     .filter(r=>range==='all'||range==='upcoming'&&r.date>=today()||range==='past'&&r.date<today());
   return result.sort((a,b)=>$('#sort').value==='balance'?balance(b)-balance(a)||a.date.localeCompare(b.date):$('#sort').value==='soonest'?a.date.localeCompare(b.date):b.date.localeCompare(a.date));
 }
 function badge(r) {
+  if (r.settled && r.type !== 'Blackout') return '<span class="badge settled">Settled</span>';
   if (r.cancelled) return '<span class="badge">Cancelled</span>';
   if (r.type === 'Blackout') return '<span class="badge blackout">Blocked</span>';
   return `<span class="badge ${review(r)?'review':balance(r)?'due':''}">${r.total==null?'Agreed price missing':review(r)?'Review imported balance':balance(r)?'Balance due':'Paid in full'}</span>`;

@@ -10,7 +10,7 @@ const BetaLedger = (() => {
     const r=clone(input);r.beta=true;r.revision=r.revision||0;
     r.payments=r.payments||[];r.refunds=r.refunds||[];r.voids=r.voids||[];r.depositTransactions=r.depositTransactions||[];r.activity=r.activity||[];
     r.paymentContacts=r.paymentContacts||[];r.nextFollowUp=r.nextFollowUp||'';r.cancellationDue=r.cancellationDue||'';
-    r.contractStatus=r.contractStatus||'Not prepared';r.cancelled=!!r.cancelled;
+    r.contractStatus=r.contractStatus||'Not prepared';r.cancelled=!!r.cancelled;if(!(r.settled&&r.settled.resolved))delete r.settled;
     r.cancellationFee=r.cancellationFee==null?null:Number(r.cancellationFee);
     r.original=r.original||{total:r.total,openingPaid:r.openingPaid||0,sheetBalance:r.sheetBalance,importedDifference:r.importedDifference||0};
     const voided=id=>r.voids.some(v=>v.targetId===id);
@@ -36,6 +36,23 @@ const BetaLedger = (() => {
     allowed(cmd,['type','bookingId','expectedRevision','values']);
     if(!meta||!meta.id||!meta.actor||!meta.at)throw Error('Change identity is required.');
     const next=clone(state),v=cmd.values||{};
+    if(cmd.type==='settleMany'||cmd.type==='unsettleMany') {
+      // One atomic journal row. Settled is an annotation only: it never changes payments, charges, balances, credits or deposits.
+      const settle=cmd.type==='settleMany';
+      allowed(v,settle?['ids','cutoff','reason']:['ids','reason']);reason(v.reason);
+      if(!Array.isArray(v.ids)||!v.ids.length||v.ids.length>1500||v.ids.some(i=>typeof i!=='string'))throw Error('Choose at least one booking.');
+      const cutoff=settle?Ledger.date(v.cutoff):null,ids=new Set(v.ids);let changed=0;
+      next.records=next.records.map(b=>{
+        if(!ids.has(b.id))return b;
+        const rec=derive(b);
+        if(settle){if(rec.type==='Blackout'||rec.settled||!(rec.date<cutoff))return b;rec.settled={resolved:true,reason:v.reason,createdAt:meta.at,createdBy:meta.actor,bulk:meta.id};}
+        else{if(!rec.settled)return b;rec.settled=null;}
+        rec.revision++;rec.activity.push({type:settle?'settled':'unsettled',at:meta.at,actor:meta.actor,reason:Ledger.text(v.reason,500),changes:[{field:'settled',before:!settle,after:settle}]});changed++;
+        return derive(rec);
+      });
+      next.lastBulk={type:cmd.type,changed,at:meta.at};
+      return next;
+    }
     const previous=state.records.find(b=>b.id===cmd.bookingId);
     let r=next.records.find(b=>b.id===cmd.bookingId);if(r)r=derive(r);
     if(cmd.type==='create') {
@@ -123,6 +140,15 @@ const BetaLedger = (() => {
           if(!statuses.includes(v.status))throw Error('Choose a contract status.');
           r.contractStatus=v.status;r.contractStatusDate=Ledger.date(v.date);break;
         }
+        case 'markSettled': {
+          allowed(v,['reason','cutoff']);reason(v.reason);const cutoff=Ledger.date(v.cutoff);
+          if(r.settled)throw Error('This booking is already marked settled.');
+          if(!(r.date<cutoff))throw Error('Only events in the past can be marked settled.');
+          r.settled={resolved:true,reason:v.reason,createdAt:meta.at,createdBy:meta.actor};break;
+        }
+        case 'unsettle': {
+          allowed(v,['reason']);reason(v.reason);if(!r.settled)throw Error('This booking is not marked settled.');r.settled=null;break;
+        }
         default: throw Error('Unknown beta action.');
       }
     }
@@ -133,16 +159,16 @@ const BetaLedger = (() => {
   }
   function execute(state,cmd,key,meta) {
     if(typeof key!=='string'||!/^[a-zA-Z0-9_-]{16,100}$/.test(key))throw Error('Invalid save request. Reopen the form.');
-    const fingerprint=JSON.stringify(cmd);if(fingerprint.length>20000)throw Error('This change is too large. Shorten the notes.');
+    const bulk=['settleMany','unsettleMany'].includes(cmd.type),fingerprint=JSON.stringify(cmd);if(fingerprint.length>(bulk?45000:20000))throw Error('This change is too large. Shorten the notes.');
     const old=state.requests.find(r=>r.key===key);
-    if(old){if(old.fingerprint!==fingerprint||old.actor!==meta.actor)throw Error('This request was already used with different details.');return {state:clone(state),record:clone(state.records.find(r=>r.id===old.bookingId)),duplicate:true};}
-    const next=apply(state,cmd,meta),id=cmd.type==='create'?meta.id:cmd.bookingId;
-    next.requests.push({key,fingerprint,actor:meta.actor,bookingId:id});
-    return {state:next,record:clone(next.records.find(r=>r.id===id)),duplicate:false};
+    if(old){if(old.fingerprint!==fingerprint||old.actor!==meta.actor)throw Error('This request was already used with different details.');return {state:clone(state),record:old.bookingId==='*'?null:clone(state.records.find(r=>r.id===old.bookingId)),changed:old.bookingId==='*'?old.changed:undefined,duplicate:true};}
+    const next=apply(state,cmd,meta),id=bulk?'*':cmd.type==='create'?meta.id:cmd.bookingId;
+    next.requests.push({key,fingerprint,actor:meta.actor,bookingId:id,changed:bulk?next.lastBulk.changed:undefined});
+    return {state:next,record:bulk?null:clone(next.records.find(r=>r.id===id)),changed:bulk?next.lastBulk.changed:undefined,duplicate:false};
   }
   function summary(records) {
     const sum=fn=>round(records.reduce((n,r)=>n+fn(r),0));
-    return {activeBookings:records.filter(r=>!r.cancelled&&r.type!=='Blackout').length,charges:sum(r=>r.financialTotal||0),payments:sum(r=>r.paid),unpricedPayments:sum(r=>r.financialTotal==null?r.paid:0),balance:sum(r=>r.financialTotal==null?0:Math.max(0,r.financialTotal-r.paid)),credits:sum(r=>r.credit||0),depositHeld:sum(r=>r.depositHeld),depositReceived:sum(r=>r.depositReceived),depositRefunded:sum(r=>r.depositRefunded),depositDeducted:sum(r=>r.depositDeducted),unpriced:records.filter(r=>r.type!=='Blackout'&&r.financialTotal==null).length,unsettled:records.filter(r=>r.type!=='Blackout'&&r.cancelled&&r.cancellationFee==null).length};
+    return {activeBookings:records.filter(r=>!r.cancelled&&r.type!=='Blackout').length,charges:sum(r=>r.financialTotal||0),payments:sum(r=>r.paid),unpricedPayments:sum(r=>r.financialTotal==null?r.paid:0),balance:sum(r=>r.financialTotal==null?0:Math.max(0,r.financialTotal-r.paid)),credits:sum(r=>r.credit||0),depositHeld:sum(r=>r.depositHeld),depositReceived:sum(r=>r.depositReceived),depositRefunded:sum(r=>r.depositRefunded),depositDeducted:sum(r=>r.depositDeducted),unpriced:records.filter(r=>r.type!=='Blackout'&&r.financialTotal==null).length,unsettled:records.filter(r=>r.type!=='Blackout'&&r.cancelled&&r.cancellationFee==null&&!r.settled).length,settledBookings:records.filter(r=>r.type!=='Blackout'&&r.settled).length};
   }
   function report(records) {
     return [['Contract','Guest','Event date','Status','Agreed charges','Net event payments','Balance to collect','Credit / refund to review','Deposit held','Contract status','Deposit received','Deposit refunded','Deposit deducted','Payment due','Next follow-up','Last contact','Contact count'],...records.map(r=>[r.contract,r.client,r.date,r.cancelled?'Cancelled':r.type==='Blackout'?'Blocked':'Active',r.financialTotal??'',r.paid,r.financialTotal==null?'':round(Math.max(0,r.financialTotal-r.paid)),r.credit??'',r.depositHeld,r.contractStatus,r.depositReceived,r.depositRefunded,r.depositDeducted,dueDate(r),r.nextFollowUp||'',(r.paymentContacts||[]).map(c=>c.date).sort().pop()||'',(r.paymentContacts||[]).length])];
@@ -158,7 +184,7 @@ const BetaLedger = (() => {
   const dueDate = r => r.cancelled?(r.cancellationDue||''):(r.due||'');
   function reminders(records,today) {
     Ledger.date(today);const end=new Date(today+'T12:00:00Z');end.setUTCDate(end.getUTCDate()+7);const soon=end.toISOString().slice(0,10);
-    return records.filter(r=>r.type!=='Blackout'&&r.financialTotal!=null&&r.financialTotal-r.paid>0).map(r=>{
+    return records.filter(r=>r.type!=='Blackout'&&!r.settled&&r.financialTotal!=null&&r.financialTotal-r.paid>0).map(r=>{
       const due=dueDate(r),contacts=(r.paymentContacts||[]).slice().sort((a,b)=>b.date.localeCompare(a.date)||b.createdAt.localeCompare(a.createdAt));
       return {id:r.id,client:r.client,contract:r.contract,amount:round(r.financialTotal-r.paid),due,nextFollowUp:r.nextFollowUp||'',lastContact:contacts[0]||null,overdue:!!due&&due<today,dueSoon:!!due&&due>=today&&due<=soon,followUpDue:!!r.nextFollowUp&&r.nextFollowUp<=today,missingDue:!due};
     }).sort((a,b)=>Number(b.followUpDue)-Number(a.followUpDue)||Number(b.overdue)-Number(a.overdue)||(a.nextFollowUp||a.due||'9999').localeCompare(b.nextFollowUp||b.due||'9999')||a.contract.localeCompare(b.contract));

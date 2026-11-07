@@ -14,11 +14,39 @@ const BetaUI = (() => {
  }
  function attention(){
   const queue=BetaLedger.reminders(records,today()),urgent=queue.filter(r=>r.overdue||r.dueSoon||r.followUpDue).length;
-  const existing=$('#attention [data-filter=overdue]')?.closest('.attention-item');
-  if(existing){existing.innerHTML=`<span>${ICONS.clock}</span><div><b>Payment reminders · ${queue.length} ${queue.length===1?'balance':'balances'}</b><p>${urgent} overdue, due within 7 days or ready for follow-up.</p></div><button type="button" id="betaOpenReminders" aria-label="Open payment reminders">${ICONS.chevronRight}</button>`;$('#betaOpenReminders').onclick=openReminders;}
+  let existing=$('#attention [data-filter=overdue]')?.closest('.attention-item');
+  if(queue.length||existing){
+   if(!existing){$('#attention .attention-clear')?.remove();$('#attention').insertAdjacentHTML('afterbegin','<div class="attention-item"></div>');existing=$('#attention .attention-item');}
+   existing.innerHTML=`<span>${ICONS.clock}</span><div><b>Payment reminders · ${queue.length} ${queue.length===1?'balance':'balances'}</b><p>${urgent} overdue, due within 7 days or ready for follow-up.</p></div><button type="button" id="betaOpenReminders" aria-label="Open payment reminders">${ICONS.chevronRight}</button>`;$('#betaOpenReminders').onclick=openReminders;
+  }
+  const pastOpen=records.filter(r=>r.type!=='Blackout'&&!r.settled&&r.date<today()),panel=$('#attention');
+  if(pastOpen.length){panel.insertAdjacentHTML('beforeend',`<div class="attention-item"><span>${ICONS.check}</span><div><b>${pastOpen.length} past ${pastOpen.length===1?'event is':'events are'} not marked settled</b><p>Mark every event dated before today as settled. Upcoming events are not changed and prices, payments and balances stay as recorded.</p></div><button type="button" class="quiet" id="betaSettlePast">Mark past events settled…</button></div>`);$('#betaSettlePast').onclick=settlePast;}
+  const lastBulk=records.filter(r=>r.settled&&r.settled.bulk).sort((a,b)=>b.settled.createdAt.localeCompare(a.settled.createdAt))[0];
+  if(lastBulk){panel.insertAdjacentHTML('beforeend',`<div class="attention-item"><span>${ICONS.clock}</span><div><b>Settled in bulk</b><p>You can undo the last bulk settlement for every event it covered.</p></div><button type="button" class="quiet" id="betaUnsettleLast">Undo last bulk settlement…</button></div>`);$('#betaUnsettleLast').onclick=()=>unsettleLast(lastBulk.settled.bulk);}
   const count=BetaLedger.summary(records).unsettled;if(!count)return;
   $('#attention').insertAdjacentHTML('beforeend',`<div class="attention-item"><span>${ICONS.alert}</span><div><b>${count} cancelled bookings need a settlement</b><p>Confirm the cancellation charge and review any refund or balance.</p></div><button type="button" id="betaSettlementReview" aria-label="Review cancellation settlements">${ICONS.chevronRight}</button></div>`);
   $('#betaSettlementReview').onclick=()=>{setView('bookings',false);scope='all';syncScope();$('#status').value='cancelled';$('#dateRange').value='all';page=0;renderTable();};
+ }
+
+ async function bulkSettle(cmd,message){
+  if(busy)return;busy=true;
+  try{const result=await rpc('betaCommand',cmd,uuid());const response=await rpc('getLedger');records=response.records.map(normalize);serverToday=response.today||serverToday;updateYears();render();toast(message(result.changed));}
+  catch(error){toast(error.message+' Nothing was partly saved; you can try again.');}
+  finally{busy=false;}
+ }
+ async function settlePast(){
+  if(busy)return;const cutoff=today(),eligible=records.filter(r=>r.type!=='Blackout'&&!r.settled&&r.date<cutoff);if(!eligible.length)return;
+  const n=fn=>eligible.filter(fn).length,parts=[[n(r=>r.total==null),'with no agreed price'],[n(r=>r.total!=null&&balance(r)>0),'with a balance still showing'],[n(r=>r.total!=null&&r.paid>r.total),'showing an overpayment'],[n(r=>r.total!=null&&review(r)),'with an imported balance to review']].filter(([c])=>c);
+  const detail=parts.length?' Among them: '+parts.map(([c,t])=>c+' '+t).join(', ')+'.':'';
+  const yes=await askConfirm({title:`Mark ${eligible.length} past ${eligible.length===1?'event':'events'} settled?`,message:`Every event dated before today (${cutoff}) will be marked settled and leave Needs attention.${detail} Prices, payments and balances are not changed. Upcoming events are not changed. You can undo this.`,yes:'Mark settled',no:'Cancel'});
+  if(!yes)return;
+  await bulkSettle({type:'settleMany',values:{ids:eligible.map(r=>r.id),cutoff,reason:'Past events settled by the owner'}},c=>`${c} past ${c===1?'event':'events'} marked settled.`);
+ }
+ async function unsettleLast(bulkId){
+  const ids=records.filter(r=>r.settled&&r.settled.bulk===bulkId).map(r=>r.id);if(!ids.length||busy)return;
+  const yes=await askConfirm({title:`Undo the last bulk settlement?`,message:`${ids.length} ${ids.length===1?'event returns':'events return'} to Needs attention if they have open questions. Nothing else changes.`,yes:'Undo settlement',no:'Keep settled'});
+  if(!yes)return;
+  await bulkSettle({type:'unsettleMany',values:{ids,reason:'Bulk settlement undone by the owner'}},c=>`${c} ${c===1?'event':'events'} returned to the ledger.`);
  }
  function tools(r){
   const opts=actions.filter(([t])=>eligible(r,t));

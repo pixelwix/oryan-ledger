@@ -75,6 +75,8 @@ nav button.active{background:#cfb25d;color:#17191a;font-weight:700}
 .day-event-bar.review{background:#e88d72}
 .day-event-bar.blackout{background:#8b8e96}
 .badge.blackout{background:#2b2e34;color:#cfd2d6;border:1px solid #4a4d55}
+.badge.settled{background:#22291f;color:#b9d3a8;border:1px solid #3c4b36}
+.attention-clear b{color:var(--lime)}
 .blackout-notice{padding:14px;background:#26282d;border:1px solid #40434a;border-radius:8px;margin:18px 0;font-size:11px;line-height:1.6;color:#cfd2d6}
 .blackout-notice b{display:block;font-size:12px;color:#f1efea;margin-bottom:4px}
 .cal-empty-actions{display:flex;justify-content:center;gap:10px;flex-wrap:wrap}
