@@ -33,23 +33,36 @@ const store = (area, key, value) => { try { value === undefined ? area.removeIte
 const read = (area, key) => { try { return area.getItem(key); } catch { return null; } };
 function signInError(message) { return Object.assign(Error(message), {signIn:true}); }
 function storedToken(minMs = 60000) {
-  try { const t = JSON.parse(read(sessionStorage, 'oryan-auth')); return t && t.expires - Date.now() > minMs ? t : null; } catch { return null; }
+  try { const t = JSON.parse(read(localStorage, 'oryan-auth') || read(sessionStorage, 'oryan-auth')); return t && t.expires - Date.now() > minMs ? t : null; } catch { return null; }
+}
+function clearSignIn() { store(localStorage, 'oryan-auth'); store(sessionStorage, 'oryan-auth'); }
+// Renews without a screen when Google is still logged in. Tries once per minute, so a refusal can't loop.
+function silentSignIn() {
+  if (!API || storedToken() || read(localStorage, 'oryan-signed-out') || !read(localStorage, 'oryan-email')) return false;
+  if (Date.now() - Number(read(sessionStorage, 'oryan-silent-tried') || 0) < 60000) return false;
+  store(sessionStorage, 'oryan-silent-tried', String(Date.now())); signIn('none'); return true;
 }
 function signIn(prompt) {
-  const state = uuid(); store(sessionStorage, 'oryan-auth-state', state);
-  const params = new URLSearchParams({client_id:API.clientId, redirect_uri:location.origin + location.pathname, response_type:'token', scope:API.scopes.join(' '), include_granted_scopes:'true', state});
+  const state = uuid(), nonce = uuid(); store(sessionStorage, 'oryan-auth-state', state); store(sessionStorage, 'oryan-auth-nonce', nonce);
+  const params = new URLSearchParams({client_id:API.clientId, redirect_uri:location.origin + location.pathname, response_type:'token id_token', scope:API.scopes.join(' '), include_granted_scopes:'true', state, nonce});
   const hint = read(localStorage, 'oryan-email'); if (hint) params.set('login_hint', hint);
   prompt = prompt || (read(localStorage, 'oryan-signed-out') ? 'select_account' : '');
   if (prompt) params.set('prompt', prompt);
   location.assign('https://accounts.google.com/o/oauth2/v2/auth?' + params);
 }
+// Saved copies need this; the ledger doesn't. A missing or mismatched token only leaves copies pending, so it never blocks sign-in.
+function verifiedIdToken(token, nonce) {
+  try { const part = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'); return nonce && JSON.parse(atob(part)).nonce === nonce ? token : ''; } catch { return ''; }
+}
 function captureToken() {
   if (!API || !/access_token|error=/.test(location.hash)) return '';
-  const h = new URLSearchParams(location.hash.slice(1)), state = read(sessionStorage, 'oryan-auth-state');
-  history.replaceState(null, '', location.pathname + location.search); store(sessionStorage, 'oryan-auth-state');
+  const h = new URLSearchParams(location.hash.slice(1)), state = read(sessionStorage, 'oryan-auth-state'), nonce = read(sessionStorage, 'oryan-auth-nonce');
+  history.replaceState(null, '', location.pathname + location.search); store(sessionStorage, 'oryan-auth-state'); store(sessionStorage, 'oryan-auth-nonce');
+  if (['interaction_required', 'login_required', 'consent_required', 'account_selection_required'].includes(h.get('error'))) return 'Sign in with your Google account to continue.';
   if (h.get('error')) return 'Google sign-in did not finish. Sign in to continue.';
   if (!state || h.get('state') !== state) return 'Sign-in could not be verified. Sign in again.';
-  store(sessionStorage, 'oryan-auth', JSON.stringify({token:h.get('access_token'), expires:Date.now() + Number(h.get('expires_in') || 3600) * 1000}));
+  store(sessionStorage, 'oryan-auth'); store(sessionStorage, 'oryan-silent-tried');
+  store(localStorage, 'oryan-auth', JSON.stringify({token:h.get('access_token'), idToken:verifiedIdToken(h.get('id_token') || '', nonce), expires:Date.now() + Number(h.get('expires_in') || 3600) * 1000}));
   store(localStorage, 'oryan-signed-out');
   return '';
 }
@@ -61,7 +74,7 @@ async function apiRun(name, args) {
   try { response = await fetch(`https://script.googleapis.com/v1/scripts/${API.scriptId}:run`, {method:'POST', headers:{Authorization:'Bearer ' + t.token, 'Content-Type':'application/json'}, body:JSON.stringify({function:name, parameters:args})}); }
   catch { throw Error('Could not reach Google Sheets. Check the connection and try again.'); }
   const data = await response.json().catch(() => ({}));
-  if (response.status === 401) { store(sessionStorage, 'oryan-auth'); throw signInError('Your Google sign-in expired. Sign in again.'); }
+  if (response.status === 401) { clearSignIn(); throw signInError('Your Google sign-in expired. Sign in again.'); }
   if (data.error) throw Error(data.error.details?.[0]?.errorMessage || data.error.message || 'Could not reach Google Sheets. Try again.');
   return data.response?.result;
 }
@@ -86,7 +99,7 @@ function openAccount() {
 }
 // Ends this device's ledger session. Google's own session and the app's consent are left alone, so the next sign-in only has to pick an account.
 function signOut() {
-  store(sessionStorage,'oryan-auth');store(localStorage,'oryan-email');store(localStorage,'oryan-signed-out','1');
+  clearSignIn();store(localStorage,'oryan-email');store(localStorage,'oryan-signed-out','1');
   dirty=false;location.reload();
 }
 // The Sheet keeps the stored type 'Blackout' so existing rows still work; people see 'Blocked date'.
@@ -135,10 +148,12 @@ async function load() {
     ready=true; updateYears(); render();
     $('#connectionStatus').textContent=LIVE?'Google Sheets · connected':'Demo · saved on this device';
     if(BETA)BetaUI.loaded();
+    if(typeof SquareUI!=='undefined')SquareUI.loaded();
     $('#lastUpdated').textContent='Updated '+new Date().toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
     ['#newBooking','#mobileAdd','#quickPayment'].forEach(s=>$(s).disabled=false);
   } catch(e) {
     $('#loadError').hidden=false; $('#loadError p').textContent=e.message;
+    if(e.signIn&&silentSignIn())return;
     $('#retryLoad').textContent=e.signIn?'Sign in with Google':'Try again'; $('#retryLoad').onclick=e.signIn?()=>signIn():load;
     $('#connectionStatus').textContent=LIVE?'Google Sheets · could not load':'Demo · could not load';
   }
@@ -173,21 +188,26 @@ function renderCharts(data) {
   $('#types').innerHTML=sorted.slice(0,5).map(([t,n])=>`<div class="type"><span>${esc(t)}</span><div class="track"><span style="width:${n/(sorted[0]?.[1]||1)*100}%"></span></div><span>${n}</span></div>`).join('')+'<small class="empty-copy">Top event types in this selection.</small>';
 }
 function renderAttention(data) {
-  const missing=data.filter(r=>r.total==null).length;
-  const duplicateDays=[...new Set(data.filter(r=>activeRecords().filter(other=>other.date===r.date).length>1).map(r=>r.date))].length;
-  const late=data.filter(r=>balance(r)>0&&r.due&&r.due<today()).length, mismatch=data.filter(r=>r.total!=null&&review(r)).length, credit=data.filter(r=>r.total!=null&&r.paid>r.total).length;
-  $('#attention').innerHTML=[[plural(duplicateDays,'date has multiple bookings','dates have multiple bookings'),'Imported history needs review. New bookings on an occupied date are blocked.','duplicate'],[plural(missing,'booking needs an agreed price','bookings need an agreed price'),'Payments are preserved; balance and credit stay unknown until the price is entered.','price'],[plural(late,'booking past its due date','bookings past their due date'),'Check the recorded due dates before following up.','overdue'],[plural(mismatch,'imported balance to review','imported balances to review'),'Original cost minus original payments differs from the listed balance.','balanceReview'],[plural(credit,'booking shows an overpayment','bookings show an overpayment'),'Check whether extra money was a refundable security deposit.','credit']].map(([t,n,f])=>`<div class="attention-item"><span>${f==='overdue'?ICONS.clock:ICONS.alert}</span><div><b>${t}</b><p>${n}</p></div><button aria-label="View ${esc(t)}" data-filter="${f}">${ICONS.chevronRight}</button></div>`).join('');
+  // Settled bookings (past events the owner has closed) never appear here; their true numbers stay in their own detail.
+  const live=data.filter(r=>!r.settled), openRecords=activeRecords().filter(r=>!r.settled);
+  const missing=live.filter(r=>r.total==null).length;
+  const duplicateDays=[...new Set(live.filter(r=>openRecords.filter(other=>other.date===r.date).length>1).map(r=>r.date))].length;
+  const late=live.filter(r=>balance(r)>0&&r.due&&r.due<today()).length, mismatch=live.filter(r=>r.total!=null&&review(r)).length, credit=live.filter(r=>r.total!=null&&r.paid>r.total).length;
+  const rows=[[duplicateDays,plural(duplicateDays,'date has multiple bookings','dates have multiple bookings'),'Imported history needs review. New bookings on an occupied date are blocked.','duplicate'],[missing,plural(missing,'booking needs an agreed price','bookings need an agreed price'),'Payments are preserved; balance and credit stay unknown until the price is entered.','price'],[late,plural(late,'booking past its due date','bookings past their due date'),'Check the recorded due dates before following up.','overdue'],[mismatch,plural(mismatch,'imported balance to review','imported balances to review'),'Original cost minus original payments differs from the listed balance.','balanceReview'],[credit,plural(credit,'booking shows an overpayment','bookings show an overpayment'),'Check whether extra money was a refundable security deposit.','credit']].filter(([n])=>n>0);
+  $('#attention').innerHTML=rows.length?rows.map(([n,t,d,f])=>`<div class="attention-item"><span>${f==='overdue'?ICONS.clock:ICONS.alert}</span><div><b>${t}</b><p>${d}</p></div><button aria-label="View ${esc(t)}" data-filter="${f}">${ICONS.chevronRight}</button></div>`).join(''):`<div class="attention-item attention-clear"><span>${ICONS.check}</span><div><b>Nothing needs attention</b><p>Past events are settled and no upcoming booking has an open question.</p></div></div>`;
   $$('[data-filter]').forEach(b=>b.onclick=()=>{setView('bookings',false);$('#status').value=b.dataset.filter;$('#dateRange').value='all';page=0;renderTable();$('.ledger').scrollIntoView({behavior:'smooth'})});
 }
 function filtered() {
   const q=$('#search').value.trim().toLowerCase(), s=$('#status').value, range=$('#dateRange').value;
   const selection=s==='cancelled'?records.filter(r=>r.cancelled&&(scope==='all'||r.date.startsWith($('#year').value))):BETA&&['balance','paid','credit','review','price'].includes(s)?records.filter(r=>r.type!=='Blackout'&&(scope==='all'||r.date.startsWith($('#year').value))):base();
-  const result=selection.filter(r=>([r.client,typeLabel(r.type),r.contract,r.phone].join(' ').toLowerCase().includes(q) || (/^[\d\s()+.-]+$/.test(q) && q.replace(/\D/g,'').length>=3 && (Ledger.phone(r.phone)===Ledger.phone(q) || r.phone.replace(/\D/g,'').includes(q.replace(/\D/g,''))))))
-    .filter(r=>s==='cancelled'||s==='all'||s==='balance'&&balance(r)>0||s==='paid'&&eventCharge(r)!=null&&balance(r)===0||s==='duplicate'&&activeRecords().filter(other=>other.date===r.date).length>1||s==='review'&&review(r)||s==='balanceReview'&&eventCharge(r)!=null&&review(r)||s==='price'&&eventCharge(r)==null||s==='credit'&&eventCharge(r)!=null&&r.paid>eventCharge(r)||s==='overdue'&&balance(r)>0&&r.due&&r.due<today())
+  const result=selection.filter(r=>[r.client,typeLabel(r.type),r.contract,r.phone].join(' ').toLowerCase().includes(q))
+    .filter(r=>!(r.settled&&['duplicate','price','overdue','balanceReview','credit','review'].includes(s)))
+    .filter(r=>s==='settled'?!!r.settled:s==='cancelled'||s==='all'||s==='balance'&&balance(r)>0||s==='paid'&&eventCharge(r)!=null&&balance(r)===0||s==='duplicate'&&activeRecords().filter(other=>other.date===r.date).length>1||s==='review'&&review(r)||s==='balanceReview'&&eventCharge(r)!=null&&review(r)||s==='price'&&eventCharge(r)==null||s==='credit'&&eventCharge(r)!=null&&r.paid>eventCharge(r)||s==='overdue'&&balance(r)>0&&r.due&&r.due<today())
     .filter(r=>range==='all'||range==='upcoming'&&r.date>=today()||range==='past'&&r.date<today());
   return result.sort((a,b)=>$('#sort').value==='balance'?balance(b)-balance(a)||a.date.localeCompare(b.date):$('#sort').value==='soonest'?a.date.localeCompare(b.date):b.date.localeCompare(a.date));
 }
 function badge(r) {
+  if (r.settled && r.type !== 'Blackout') return '<span class="badge settled">Settled</span>';
   if (r.cancelled) return '<span class="badge">Cancelled</span>';
   if (r.type === 'Blackout') return '<span class="badge blackout">Blocked</span>';
   return `<span class="badge ${review(r)?'review':balance(r)?'due':''}">${r.total==null?'Agreed price missing':review(r)?'Review imported balance':balance(r)?'Balance due':'Paid in full'}</span>`;
@@ -410,7 +430,7 @@ function renderCalendarAgenda() {
 }
 function bindDetails(root) {root.querySelectorAll('[data-detail]').forEach(b=>b.onclick=()=>openDetails(b.dataset.detail));}
 function setView(v, scroll=true) {
-  view=v; $$('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===v));
+  view=v; if(typeof SquareUI!=='undefined')SquareUI.showView(); $$('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===v));
   $('#crumb').textContent=v[0].toUpperCase()+v.slice(1);
   $('#title').textContent=({overview:'Every event, in view.',bookings:'Your bookings, organized.',calendar:'Upcoming events at a glance.',payments:'A quick payment. A clear balance.',insights:'A clearer picture of your business.'})[v]||'Every event, in view.';
   $('#dashboard').hidden=v!=='overview'&&v!=='insights';
@@ -444,9 +464,9 @@ function openDetails(id) {
   }
   $('#detailTitle').textContent=r.client;
   const history=[...(r.openingPaid?[{amount:r.openingPaid,date:r.openingDate,method:r.imported?'Historical payments (combined)':r.openingMethod||'Initial payment',note:r.imported?'Imported as a total. Individual payment dates and methods were not available.':'Initial payment at booking'}]:[]),...r.payments];
-  $('#detailContent').innerHTML=`<p class="modal-sub">${esc(typeLabel(r.type))} · ${dateLabel(r.date)} · #${esc(r.contract)}</p>${r.phone?`<p><a class="phone-link" href="tel:${esc(r.phone.replace(/[^\d]/g,''))}">Call ${esc(Ledger.phone(r.phone))}</a></p>`:''}<div class="payment-summary"><span>Agreed price<b>${r.total==null?'Not entered':money(r.total)}</b></span><span>Paid<b>${money(r.paid)}</b></span><span>Still due<b${r.cancelled&&!BETA||eventCharge(r)==null?' class="summary-text"':''}>${r.cancelled&&!BETA?'Cancelled':eventCharge(r)==null?(BETA?'Review charge':'Review price'):money(balance(r))}</b></span></div>${r.total==null?`<p class="review-note">The agreed price was blank in the original ledger. Payments are preserved, but the balance and any credit are unknown. Confirm the contract, cancellation, and deposit status, then use Manage booking to reconcile the imported balance.</p>`:review(r)&&!(r.cancelled&&!r.imported)?`<p class="review-note">Imported balance needs review. ${r.sheetBalance == null ? 'The original listed balance was missing.' : 'The source listed '+money(r.sheetBalance)+'; the difference from the original cost minus paid is '+money(r.importedDifference)+'.'} New payments do not clear this flag.</p>`:''}${r.total!=null&&r.paid>r.total?`<p class="review-note">Overpayment: ${money(Math.round((r.paid-r.total)*100)/100)}. Check the refundable security deposit.</p>`:''}<dl class="booking-facts"><dt>Balance due</dt><dd>${r.due?dateLabel(r.due):'No due date set'}</dd><dt>Included extras</dt><dd>${(Ledger.extrasList?Ledger.extrasList(r):[r.covers?'Covers+':'',r.projector?'Projector':'',(r.audio||r.sound)?'Audio':'',r.bar?'Bar':'',r.security?'Security':''].filter(Boolean)).join(', ')||'None recorded'}</dd><dt>Security deposit status</dt><dd>${esc(r.deposit||'Unknown')}</dd></dl>${r.notes?`<h3>Notes</h3><p class="booking-notes">${esc(r.notes)}</p>`:''}<h3>Payment history</h3><div class="payment-history">${history.length?history.map(p=>`<div><span><b>${esc(p.method||'Not recorded')}</b><small>${p.date?dateLabel(p.date):'Date not available'}</small>${p.note?`<small>${esc(p.note)}</small>`:''}</span><strong>${money(p.amount)}</strong></div>`).join(''):'<p class="empty-copy">No payments recorded yet.</p>'}</div>`;
+  $('#detailContent').innerHTML=`<p class="modal-sub">${esc(typeLabel(r.type))} · ${dateLabel(r.date)} · #${esc(r.contract)}</p>${r.phone?`<p><a class="phone-link" href="tel:${esc(r.phone.replace(/[^+\d]/g,''))}">Call ${esc(r.phone)}</a></p>`:''}<div class="payment-summary"><span>Agreed price<b>${r.total==null?'Not entered':money(r.total)}</b></span><span>Paid<b>${money(r.paid)}</b></span><span>Still due<b${r.cancelled&&!BETA||eventCharge(r)==null?' class="summary-text"':''}>${r.cancelled&&!BETA?'Cancelled':eventCharge(r)==null?(BETA?'Review charge':'Review price'):money(balance(r))}</b></span></div>${r.total==null?`<p class="review-note">The agreed price was blank in the original ledger. Payments are preserved, but the balance and any credit are unknown. Confirm the contract, cancellation, and deposit status, then use Manage booking to reconcile the imported balance.</p>`:review(r)&&!(r.cancelled&&!r.imported)?`<p class="review-note">Imported balance needs review. ${r.sheetBalance == null ? 'The original listed balance was missing.' : 'The source listed '+money(r.sheetBalance)+'; the difference from the original cost minus paid is '+money(r.importedDifference)+'.'} New payments do not clear this flag.</p>`:''}${r.total!=null&&r.paid>r.total?`<p class="review-note">Overpayment: ${money(Math.round((r.paid-r.total)*100)/100)}. Check the refundable security deposit.</p>`:''}<dl class="booking-facts"><dt>Balance due</dt><dd>${r.due?dateLabel(r.due):'No due date set'}</dd><dt>Included extras</dt><dd>${(Ledger.extrasList?Ledger.extrasList(r):[r.covers?'Covers+':'',r.projector?'Projector':'',(r.audio||r.sound)?'Audio':'',r.bar?'Bar':'',r.security?'Security':''].filter(Boolean)).join(', ')||'None recorded'}</dd><dt>Security deposit status</dt><dd>${esc(r.deposit||'Unknown')}</dd></dl>${r.notes?`<h3>Notes</h3><p class="booking-notes">${esc(r.notes)}</p>`:''}<h3>Payment history</h3><div class="payment-history">${history.length?history.map(p=>`<div><span><b>${esc(p.method||'Not recorded')}</b><small>${p.date?dateLabel(p.date):'Date not available'}</small>${p.note?`<small>${esc(p.note)}</small>`:''}</span><strong>${money(p.amount)}</strong></div>`).join(''):'<p class="empty-copy">No payments recorded yet.</p>'}</div>`;
   if(r.cancelled)$('#detailContent').insertAdjacentHTML('afterbegin',`<p class="review-note"><b>Cancelled</b> · ${esc(r.cancelledAt?.slice(0,10)||'')}<br>This booking no longer reserves the date. Booking and payment history are preserved. Refunds and any cancellation charges must be reconciled separately.</p>`);
-  $('#detailContract').hidden=!LIVE||!!r.cancelled;$('#detailPayment').hidden=!!r.cancelled||balance(r)===0;if(BETA)BetaUI.details(r);$('#detailDialog').showModal();
+  $('#detailContract').hidden=!LIVE||!!r.cancelled;$('#detailPayment').hidden=!!r.cancelled||balance(r)===0;if(BETA)BetaUI.details(r);$('#detailDialog').showModal();if(BETA&&LIVE)showSavedDocuments(id);if(typeof SquareUI!=='undefined')SquareUI.details(r);
 }
 function openCancelBooking() {
   const r=records.find(x=>x.id===detailId);if(busy||!r||r.cancelled||r.type==='Blackout'||needsSignIn())return;
@@ -467,11 +487,12 @@ async function confirmCancelBooking(event) {
   finally{busy=false;[...form.querySelectorAll('button')].forEach(b=>b.disabled=false);}
 }
 function renderPicker() {
-  const q=$('#paymentSearch').value.toLowerCase().trim(), choices=(BETA?records:activeRecords()).filter(r=>balance(r)>0&&([r.client,r.contract,r.phone].join(' ').toLowerCase().includes(q) || (/^[\d\s()+.-]+$/.test(q) && q.replace(/\D/g,'').length>=3 && (Ledger.phone(r.phone)===Ledger.phone(q) || r.phone.replace(/\D/g,'').includes(q.replace(/\D/g,'')))))).sort((a,b)=>a.date.localeCompare(b.date));
+  const q=$('#paymentSearch').value.toLowerCase().trim(), choices=(BETA?records:activeRecords()).filter(r=>balance(r)>0&&[r.client,r.contract,r.phone].join(' ').toLowerCase().includes(q)).sort((a,b)=>a.date.localeCompare(b.date));
   $('#paymentChoices').innerHTML=choices.slice(0,30).map(r=>`<button class="payment-choice" data-choose="${esc(r.id)}"><span><b>${esc(r.client)}</b><small>${esc(typeLabel(r.type))} · ${dateLabel(r.date)} · #${esc(r.contract)}</small></span><span><strong>${r.total==null?'Review price':money(balance(r))}</strong><small>remaining ${ICONS.chevronRight}</small></span></button>`).join('')||'<p class="empty-copy">No matching bookings with a balance due.</p>';
   if(choices.length>30)$('#paymentChoices').innerHTML+='<p class="empty-copy">Showing 30 matches. Search for a name, phone, or contract to narrow the list.</p>';
   $$('[data-choose]').forEach(b=>b.onclick=()=>{$('#pickerDialog').close();openPayment(b.dataset.choose)});
 }
+let contractSaveRequest = null;
 let contractId = null, contractPdf = null, contractUrl = null, contractInitialChanged = false;
 function contractDeadline(date) { const d=new Date(date+'T12:00:00Z');d.setUTCDate(d.getUTCDate()-14);return d.toISOString().slice(0,10); }
 function clearContractPdf() {
@@ -487,7 +508,7 @@ function contractSchedule() {
 }
 function openContract() {
   const r=records.find(x=>x.id===detailId);if(!LIVE||!r||r.cancelled||r.type==='Blackout'||needsSignIn())return;
-  contractId=r.id;clearContractPdf();contractInitialChanged=false;dirty=false;
+  contractSaveRequest='contract-'+crypto.randomUUID();contractId=r.id;clearContractPdf();contractInitialChanged=false;dirty=false;
   const form=$('#contractForm');form.reset();form.elements.phone.value=r.phone.slice(0,40);
   $('#contractGuest').textContent=`${r.client} · ${dateLabel(r.date)} · #${r.contract}`;
   $('#contractSummary').innerHTML=`<span>Agreed price<b>${r.total==null?'Not entered':money(r.total)}</b></span><span>Recorded payments<b>${money(r.paid)}</b></span><span>Selected extras<b>${esc(Ledger.extrasList(r).join(', ')||'None')}</b></span>`;
@@ -495,31 +516,32 @@ function openContract() {
   $('#contractSecurityLabel').hidden=!r.security;form.elements.securityHours.required=r.security;
   $('#contractConfirmLabel').hidden=contractDeadline(r.date)>=today();
   $('#contractInputs').hidden=false;$('#contractFile').hidden=true;$('#contractShare').hidden=true;$('#contractCreate').hidden=false;$('#contractCreate').textContent='Create PDF';$('#contractCancel').textContent='Cancel';
-  formError('#contractError','');contractSchedule();$('#detailDialog').close();$('#contractDialog').showModal();form.elements.phone.focus();
+  formError('#contractError','');contractSchedule();$('#detailDialog').close();$('#contractDialog').showModal();form.elements.start.focus();
 }
 function contractInput(event) {dirty=true;formError('#contractError','');if(event.target.name==='initial')contractInitialChanged=true;contractSchedule();}
 async function createContractPdf(event) {
   event.preventDefault();if(busy)return;const form=event.target;formError('#contractError','');
   try {
     const r=records.find(x=>x.id===contractId);if(!r)throw Error('Choose a booking.');
-    const f=form.elements, values=Object.fromEntries(new FormData(form));values.methods=new FormData(form).getAll('method');delete values.method;
+    const f=form.elements, values=Object.fromEntries(new FormData(form));
     values.confirmSchedule=f.confirmSchedule.checked;
     if(!f.start.value||!f.end.value||f.start.value===f.end.value)throw Error('Enter different rental start and end times.');
     const total=r.total==null?Ledger.cents(f.missingPrice.value):Ledger.cents(r.total), initial=Ledger.cents(f.initial.value);
     if(initial>total)throw Error('The initial amount cannot exceed the agreed price.');
     if(r.security&&(!/^\d{1,2}(\.\d{1,2})?$/.test(f.securityHours.value)||Number(f.securityHours.value)<=0||Number(f.securityHours.value)>24))throw Error('Enter security hours between 0 and 24.');
     if(contractDeadline(r.date)<today()&&!values.confirmSchedule)throw Error('Confirm the payment schedule for this event.');
-    setBusy(true,form);$('#contractCreate').textContent='Creating…';
+    setBusy(true,form);let busyNote=$('#contractBusyNote');if(!busyNote){busyNote=document.createElement('p');busyNote.id='contractBusyNote';busyNote.setAttribute('role','status');$('#contractCreate').closest('.modal-actions').before(busyNote);}busyNote.textContent='This may take 30 seconds.';busyNote.hidden=false;$('#contractCreate').textContent=(BETA&&LIVE)?'Creating and saving…':'Creating…';
     const inputs=[...form.querySelectorAll('input,select,textarea')];inputs.forEach(e=>e.disabled=true);
     let result;
-    try {result=await rpc('createContract',contractId,values);} finally {inputs.forEach(e=>e.disabled=false);}
+    try {result=await rpc('createContract',contractId,values,...(BETA&&LIVE?[{requestId:contractSaveRequest,expectedRevision:r.revision}]:[]));} finally {inputs.forEach(e=>e.disabled=false);}
     if(!result||typeof result.base64!=='string'||result.base64.length>20000000||typeof result.filename!=='string')throw Error('The PDF could not be opened. Try again.');
     const bytes=Uint8Array.from(atob(result.base64),c=>c.charCodeAt(0));
     if(new TextDecoder().decode(bytes.slice(0,5))!=='%PDF-')throw Error('The PDF could not be opened. Try again.');
+    if(result.saveError)formError('#contractError',result.saveError);
     clearContractPdf();contractPdf=new File([bytes],result.filename,{type:'application/pdf'});
     $('#contractInputs').hidden=true;$('#contractFile').textContent=result.filename;$('#contractFile').hidden=false;$('#contractCreate').hidden=true;$('#contractShare').hidden=false;$('#contractCancel').textContent='Done';dirty=false;
   }catch(error){formError('#contractError',error.message);}
-  finally{setBusy(false,form);$('#contractCreate').textContent='Create PDF';}
+  finally{if($('#contractBusyNote'))$('#contractBusyNote').hidden=true;setBusy(false,form);$('#contractCreate').textContent='Create PDF';}
 }
 async function shareContractPdf() {
   if(!contractPdf||busy)return;formError('#contractError','');
@@ -552,12 +574,27 @@ function showStep(n) {
   if(n===2){const f=new FormData($('#bookingForm'));$('#bookingReview').textContent=`${f.get('client')} · ${f.get('type')} · ${dateLabel(f.get('date'))}`;$('#bookingForm').elements.total.focus();}
   $('#bookingDialog').scrollTop=0;
 }
-function openBooking(presetDate) {
-  if(!ready||needsSignIn())return;$('#bookingForm').reset();$('#bookingNext').disabled=false;$('#bookingSave').disabled=false;bookingRequest=uuid();dirty=false;formError('#bookingError','');$('#conflict').textContent='';$('#liveBalance').textContent='$0';
-  if(typeof presetDate==='string'&&presetDate){$('#bookingForm').elements.date.value=presetDate;bookingInput();}
-  $('#bookingForm').elements.paymentDate.value=today();$$('[data-initial-payment]').forEach(e=>e.hidden=true);$('#bookingDialog').showModal();showStep(1);
+let priceManual=false;
+function priceText(form,apply,kept) {
+  let q;try{q=Ledger.pricing(form.elements.date.value,Object.fromEntries(new FormData(form)));}catch{return '';}
+  if(q&&apply)form.elements.total.value=(q.totalCents/100).toFixed(2);
+  return (q?(apply?'Calculated: ':'Suggested: ')+q.parts.map(p=>p.label+' '+money(p.cents/100)).join(' + '):'Choose an event date for a calculated price.')+(kept?' · Your typed price is kept.':'')+' Bar is free. Security is $30/hour, separate.';
 }
-function bookingInput() {
+function bookingPrice() {const form=$('#bookingForm'),text=priceText(form,!priceManual,priceManual);if(text)$('#priceNote').textContent=text;}
+// Edits only suggest a price: an existing booking's agreed total changes only if someone asks.
+function editPrice(form) {
+  form.elements.total.closest('label').insertAdjacentHTML('afterend','<p class="form-note wide" id="editPriceNote" aria-live="polite"></p><button class="quiet wide" type="button" id="editPriceUse">Use calculated price</button>');
+  const update=apply=>{const text=priceText(form,apply,false);if(text)$('#editPriceNote').textContent=text;};
+  form.addEventListener('input',()=>{if($('#editPriceNote'))update(false);});update(false);
+  $('#editPriceUse').onclick=()=>{update(true);dirty=true;};
+}
+function openBooking(presetDate) {
+  if(!ready||needsSignIn())return;$('#bookingForm').reset();priceManual=false;$('#bookingNext').disabled=false;$('#bookingSave').disabled=false;bookingRequest=uuid();dirty=false;formError('#bookingError','');$('#conflict').textContent='';$('#liveBalance').textContent='$0';
+  if(typeof presetDate==='string'&&presetDate){$('#bookingForm').elements.date.value=presetDate;bookingInput();}
+  bookingPrice();$('#bookingForm').elements.paymentDate.value=today();$$('[data-initial-payment]').forEach(e=>e.hidden=true);$('#bookingDialog').showModal();showStep(1);
+}
+function bookingInput(event) {
+  if(event?.target?.name==='total')priceManual=true;bookingPrice();
   dirty=true;const f=new FormData($('#bookingForm')),net=Number(f.get('total'))-Number(f.get('paid'));$('#liveBalance').textContent=money(net);
   $$('[data-initial-payment]').forEach(e=>e.hidden=Number(f.get('paid'))<=0);
   const collisions=activeRecords().filter(r=>r.date===f.get('date')).length;
@@ -588,7 +625,7 @@ async function saveBooking(e) {
       record={...clean,id:uuid(),contract:clean.contract||'O-'+bookingRequest.slice(0,8).toUpperCase(),openingPaid:clean.paid,openingDate:clean.paymentDate,openingMethod:clean.method,sheetBalance:null,importedDifference:0,imported:false,createdAt:new Date().toISOString(),payments:[]};
       deviceSave([...records,record]);
     }
-    records=records.filter(r=>r.id!==record.id);records.push(normalize(record));dirty=false;$('#bookingDialog').close();updateYears();scope='all';syncScope();setView('bookings',false);$('#search').value=record.contract;renderTable();$('.ledger').scrollIntoView({behavior:'smooth'});
+    records.push(normalize(record));dirty=false;$('#bookingDialog').close();updateYears();scope='all';syncScope();setView('bookings',false);$('#search').value=record.contract;renderTable();$('.ledger').scrollIntoView({behavior:'smooth'});
     toast(LIVE?'Booking saved to Google Sheets.':'Booking saved in this demo.');
   } catch(error){formError('#bookingError',error.message+(LIVE?' If a save was interrupted, retry with the same details to avoid duplicates.':''));}
   finally{setBusy(false,form);}
@@ -603,7 +640,7 @@ function openPayment(id) {
 async function savePayment(e) {
   e.preventDefault();if(busy)return;const form=e.target;formError('#paymentError','');
   try{
-    const r=records.find(x=>x.id===paymentId),clean=Ledger.payment(Object.fromEntries(new FormData(form)),BetaClient.validationRecord(paymentRequest,r));setBusy(true,form);
+    const r=records.find(x=>x.id===paymentId),clean=Ledger.payment(Object.fromEntries(new FormData(form)),r);setBusy(true,form);
     let updated;
     if(LIVE||BETA){updated=(await rpc('recordPayment',{...clean,bookingId:r.id},paymentRequest)).record;}
     else{updated={...r,paid:Math.round((r.paid+clean.amount)*100)/100,payments:[...r.payments,{...clean,id:uuid(),createdAt:new Date().toISOString()}]};deviceSave(records.map(x=>x.id===r.id?updated:x));}
@@ -706,7 +743,7 @@ $$('[data-view]').forEach(b=>b.onclick=()=>setView(b.dataset.view));$('#all').on
 $('#prev').onclick=()=>{page--;renderTable()};$('#next').onclick=()=>{page++;renderTable()};$('#newBooking').onclick=openBooking;$('#mobileAdd').onclick=openBooking;
 $('#quickPayment').onclick=openPicker;$('#quickUpcoming').onclick=showUpcoming;$('#refresh').onclick=load;$('#retryLoad').onclick=load;
 $('#calPrevMonth').onclick=prevMonth;$('#calNextMonth').onclick=nextMonth;$('#calToday').onclick=jumpToday;$('#calNextEvent').onclick=jumpNextEvent;if($('#calNextEventBottom'))$('#calNextEventBottom').onclick=jumpNextEvent;if($('#calToggleAgenda'))$('#calToggleAgenda').onclick=toggleCalendarAgenda;
-$('#bookingForm').noValidate=true;$('#bookingForm').oninput=bookingInput;$('#bookingNext').onclick=advanceBooking;$('#bookingBack').onclick=()=>step===1?closeDialog($('#bookingDialog')):showStep(1);$('#bookingForm').onsubmit=saveBooking;
+$('#bookingForm').noValidate=true;$('#bookingForm').oninput=bookingInput;$('#priceUse').onclick=()=>{priceManual=false;bookingInput();};$('#bookingNext').onclick=advanceBooking;$('#bookingBack').onclick=()=>step===1?closeDialog($('#bookingDialog')):showStep(1);$('#bookingForm').onsubmit=saveBooking;
 if($('#blackoutForm')){$('#blackoutForm').noValidate=true;$('#blackoutForm').oninput=blackoutInput;$('#blackoutForm').onsubmit=saveBlackout;}
 if($('#blackoutCancel'))$('#blackoutCancel').onclick=()=>closeDialog($('#blackoutDialog'));
 $('#paymentForm').onsubmit=savePayment;$('#paymentSearch').oninput=renderPicker;
@@ -722,4 +759,16 @@ $('#export').onclick=exportCsv;$('#reset').onclick=async()=>{if(!await askConfir
 window.addEventListener('beforeunload',e=>{if(dirty){e.preventDefault();e.returnValue='';}});
 setView('overview',false);
 const signInProblem=captureToken();
-if(signInProblem){$('#loadError').hidden=false;$('#loadError p').textContent=signInProblem;$('#retryLoad').textContent='Sign in with Google';$('#retryLoad').onclick=()=>signIn();}else load();
+if(signInProblem){$('#loadError').hidden=false;$('#loadError p').textContent=signInProblem;$('#retryLoad').textContent='Sign in with Google';$('#retryLoad').onclick=()=>signIn();}else if(!silentSignIn())load();
+
+async function showSavedDocuments(id){
+  const section=document.createElement('section');section.innerHTML='<h3>Saved copies</h3><p role="status">Loading saved copies…</p>';$('#detailContent').append(section);
+  try{
+    const rows=await rpc('listSavedDocuments',id);if(detailId!==id||!section.isConnected)return;if(rows.unavailable){section.innerHTML="<h3>Saved copies</h3><p>Saved copies aren't available yet.</p>";return;}
+    section.innerHTML='<h3>Saved copies</h3><p class="form-note">Receipts save after money is recorded. Pending copies can be retried by the original saver.</p>';
+    if(!rows.length)section.insertAdjacentHTML('beforeend','<p>No saved copies yet.</p>');
+    for(const row of rows){const line=document.createElement('p'),button=document.createElement('button');button.type='button';button.className='quiet';button.textContent=row.pending?'Retry save':'Open PDF';line.textContent=row.documentType+' · '+row.createdAt.slice(0,10)+(row.attention?' · Receipt needs attention ':row.pending?' · Saving pending ':' · Saved ');line.append(button);section.append(line);
+      button.onclick=async()=>{button.disabled=true;button.textContent=row.pending?'Saving… This may take 30 seconds.':'Opening…';try{const pdf=await rpc(row.pending?'retrySavedDocument':'getSavedDocument',id,row.requestId);if(pdf.unavailable||pdf.complete){button.textContent=pdf.complete?'Saved — reopen booking':"Saved copies aren't available yet.";return;}const bytes=Uint8Array.from(atob(pdf.base64),c=>c.charCodeAt(0)),url=URL.createObjectURL(new Blob([bytes],{type:'application/pdf'}));const a=document.createElement('a');a.href=url;a.download=pdf.filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),60000);section.remove();showSavedDocuments(id);}catch(_){button.textContent='Save unavailable — retry';button.disabled=false;}};
+    }
+  }catch(_){section.innerHTML='<h3>Saved copies</h3><p>Saved copies unavailable. Reopen this booking to retry. Payments remain recorded.</p>';}
+}

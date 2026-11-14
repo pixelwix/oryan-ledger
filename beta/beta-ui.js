@@ -4,27 +4,55 @@ const BetaUI = (() => {
  let action='',bookingId='',revision=0,requestId='',receiptHtml='',calendarReturn='';
  const actions=[['edit','Edit / reschedule'],['void','Correct a payment / deposit'],['deposit','Record a deposit transaction'],['refund','Record an event refund'],['settle','Set cancellation charge'],['restore','Restore booking / blocked date'],['release','Release blocked date'],['reconcile','Reconcile imported balance'],['contractStatus','Update contract status'],['reminder','Payment reminder / follow-up'],['calendarExport','Export calendar']];
  const label=(name,title,value='',type='text',required=true)=>`<label>${title}${required?' <span class="required">Required</span>':' <span class="optional">Optional</span>'}<input name="${name}" type="${type}" ${required?'required':''} value="${esc(value)}" ${type==='number'?'min="0" max="1000000" step="0.01"':'maxlength="150"'}></label>`;
- const select=(name,title,options,value)=>BetaChoices.markup(name,title,options,value);
+ const select=(name,title,options,value)=>`<label>${title}<select name="${name}">${(value&&!options.some(o=>(Array.isArray(o)?o[0]:o)===value)?[value,...options]:options).map(o=>{const [v,t]=Array.isArray(o)?o:[o,o];return `<option value="${esc(v)}" ${v===value?'selected':''}>${esc(t)}</option>`;}).join('')}</select></label>`;
  const note=()=>'<label class="wide">Reason for change <span class="required">Required</span><textarea name="reason" required rows="2" maxlength="500"></textarea></label>';
  function eligible(r,t){if(t==='calendarExport')return !r.cancelled;if(t==='reminder')return r.type!=='Blackout'&&r.financialTotal!=null&&balance(r)>0;return t==='edit'?!r.cancelled:t==='restore'?r.cancelled:t==='release'?r.type==='Blackout'&&!r.cancelled:t==='settle'?r.cancelled&&r.type!=='Blackout':t==='reconcile'?r.imported:t==='contractStatus'?!r.cancelled&&r.type!=='Blackout':r.type!=='Blackout';}
  function metrics(){
-  const list=records.filter(r=>scope==='all'||r.date.startsWith($('#year').value)),s=BetaLedger.summary(list);
-  const values=[['Bookings',s.activeBookings,'Active events in this selection',ICONS.bookings],['Known agreed charges',money(s.charges),`${s.unpriced} ${s.unpriced===1?'price or cancellation charge needs':'prices or cancellation charges need'} review`,ICONS.value],['Net event payments',money(s.payments),`${money(s.credits)} credit / refund to review${s.unpricedPayments?' · '+money(s.unpricedPayments)+' paid with charge missing':''}`,ICONS.check],['Balance to collect',money(s.balance),`${money(s.depositHeld)} security deposits held separately`,ICONS.clock]];
+  const list=records.filter(r=>scope==='all'||r.date.startsWith($('#year').value)),s=BetaLedger.summary(list),open=BetaLedger.summary(list.filter(r=>!r.settled)),settledBalance=Math.round((s.balance-open.balance)*100)/100;
+  const values=[['Bookings',s.activeBookings,'Active events in this selection',ICONS.bookings],['Known agreed charges',money(s.charges),`${s.unpriced} ${s.unpriced===1?'price or cancellation charge needs':'prices or cancellation charges need'} review`,ICONS.value],['Net event payments',money(s.payments),`${money(s.credits)} credit / refund to review${s.unpricedPayments?' · '+money(s.unpricedPayments)+' paid with charge missing':''}`,ICONS.check],['Balance to collect',money(open.balance),`${money(s.depositHeld)} security deposits held separately${settledBalance>0?` · ${money(settledBalance)} on settled events not counted`:''}`,ICONS.clock]];
   $('#metrics').innerHTML=values.map(([t,v,n,i])=>`<article class="metric"><div class="metric-top">${t}<span class="metric-icon">${i}</span></div><div class="metric-value">${v}</div><span class="metric-note">${n}</span></article>`).join('');
  }
  function attention(){
   const queue=BetaLedger.reminders(records,today()),urgent=queue.filter(r=>r.overdue||r.dueSoon||r.followUpDue).length;
-  const existing=$('#attention [data-filter=overdue]')?.closest('.attention-item');
-  if(existing){existing.innerHTML=`<span>${ICONS.clock}</span><div><b>Payment reminders · ${queue.length} ${queue.length===1?'balance':'balances'}</b><p>${urgent} overdue, due within 7 days or ready for follow-up.</p></div><button type="button" id="betaOpenReminders" aria-label="Open payment reminders">${ICONS.chevronRight}</button>`;$('#betaOpenReminders').onclick=openReminders;}
+  let existing=$('#attention [data-filter=overdue]')?.closest('.attention-item');
+  if(queue.length||existing){
+   if(!existing){$('#attention .attention-clear')?.remove();$('#attention').insertAdjacentHTML('afterbegin','<div class="attention-item"></div>');existing=$('#attention .attention-item');}
+   existing.innerHTML=`<span>${ICONS.clock}</span><div><b>Payment reminders · ${queue.length} ${queue.length===1?'balance':'balances'}</b><p>${urgent} overdue, due within 7 days or ready for follow-up.</p></div><button type="button" id="betaOpenReminders" aria-label="Open payment reminders">${ICONS.chevronRight}</button>`;$('#betaOpenReminders').onclick=openReminders;
+  }
+  const pastOpen=records.filter(r=>r.type!=='Blackout'&&!r.settled&&r.date<today()),panel=$('#attention');
+  if(pastOpen.length){panel.insertAdjacentHTML('beforeend',`<div class="attention-item"><span>${ICONS.check}</span><div><b>${pastOpen.length} past ${pastOpen.length===1?'event is':'events are'} not marked settled</b><p>Mark every event dated before today as settled. Upcoming events are not changed and prices, payments and balances stay as recorded.</p></div><button type="button" class="quiet" id="betaSettlePast">Mark past events settled…</button></div>`);$('#betaSettlePast').onclick=settlePast;}
+  const lastBulk=records.filter(r=>r.settled&&r.settled.bulk).sort((a,b)=>b.settled.createdAt.localeCompare(a.settled.createdAt))[0];
+  if(lastBulk){panel.insertAdjacentHTML('beforeend',`<div class="attention-item"><span>${ICONS.clock}</span><div><b>Settled in bulk</b><p>You can undo the last bulk settlement for every event it covered.</p></div><button type="button" class="quiet" id="betaUnsettleLast">Undo last bulk settlement…</button></div>`);$('#betaUnsettleLast').onclick=()=>unsettleLast(lastBulk.settled.bulk);}
   const count=BetaLedger.summary(records).unsettled;if(!count)return;
   $('#attention').insertAdjacentHTML('beforeend',`<div class="attention-item"><span>${ICONS.alert}</span><div><b>${count} cancelled bookings need a settlement</b><p>Confirm the cancellation charge and review any refund or balance.</p></div><button type="button" id="betaSettlementReview" aria-label="Review cancellation settlements">${ICONS.chevronRight}</button></div>`);
   $('#betaSettlementReview').onclick=()=>{setView('bookings',false);scope='all';syncScope();$('#status').value='cancelled';$('#dateRange').value='all';page=0;renderTable();};
+ }
+
+ async function bulkSettle(cmd,message){
+  if(busy)return;busy=true;
+  try{const result=await rpc('betaCommand',cmd,uuid());const response=await rpc('getLedger');records=response.records.map(normalize);serverToday=response.today||serverToday;updateYears();render();toast(message(result.changed));}
+  catch(error){toast(error.message+' Nothing was partly saved; you can try again.');}
+  finally{busy=false;}
+ }
+ async function settlePast(){
+  if(busy)return;const cutoff=today(),eligible=records.filter(r=>r.type!=='Blackout'&&!r.settled&&r.date<cutoff);if(!eligible.length)return;
+  const n=fn=>eligible.filter(fn).length,parts=[[n(r=>r.total==null),'with no agreed price'],[n(r=>r.total!=null&&balance(r)>0),'with a balance still showing'],[n(r=>r.total!=null&&r.paid>r.total),'showing an overpayment'],[n(r=>r.total!=null&&review(r)),'with an imported balance to review']].filter(([c])=>c);
+  const detail=parts.length?' Among them: '+parts.map(([c,t])=>c+' '+t).join(', ')+'.':'';
+  const yes=await askConfirm({title:`Mark ${eligible.length} past ${eligible.length===1?'event':'events'} settled?`,message:`Every event dated before today (${cutoff}) will be marked settled and leave Needs attention.${detail} Prices, payments and balances are not changed. Upcoming events are not changed. You can undo this.`,yes:'Mark settled',no:'Cancel'});
+  if(!yes)return;
+  await bulkSettle({type:'settleMany',values:{ids:eligible.map(r=>r.id),cutoff,reason:'Past events settled by the owner'}},c=>`${c} past ${c===1?'event':'events'} marked settled.`);
+ }
+ async function unsettleLast(bulkId){
+  const ids=records.filter(r=>r.settled&&r.settled.bulk===bulkId).map(r=>r.id);if(!ids.length||busy)return;
+  const yes=await askConfirm({title:`Undo the last bulk settlement?`,message:`${ids.length} ${ids.length===1?'event returns':'events return'} to Needs attention if they have open questions. Nothing else changes.`,yes:'Undo settlement',no:'Keep settled'});
+  if(!yes)return;
+  await bulkSettle({type:'unsettleMany',values:{ids,reason:'Bulk settlement undone by the owner'}},c=>`${c} ${c===1?'event':'events'} returned to the ledger.`);
  }
  function tools(r){
   const opts=actions.filter(([t])=>eligible(r,t));
   const body=`<details class="optional-details" id="betaTools"><summary>Manage booking ${testing?'<span>Beta</span>':''}</summary><div class="form-grid">${select('betaAction','Action',opts,opts[0]?.[0])}<label>Open action<button type="button" class="quiet" id="betaContinue">Continue</button></label></div></details>`;
   $('#detailContent').insertAdjacentHTML('beforeend',body);
-  $('#betaContinue').onclick=()=>open($('#detailContent [name=betaAction]:checked').value,r.id);
+  $('#betaContinue').onclick=()=>open($('#detailContent [name=betaAction]').value,r.id);
   if(r.type==='Blackout'){
    if(r.cancelled){$('#detailTitle').textContent='Released blocked date';$('#detailContent .blackout-notice').textContent='This hold no longer reserves the date. Restore it only if the date is still available.';}
    $('#detailContent').insertAdjacentHTML('beforeend','<details class="optional-details"><summary>Change history</summary>'+r.activity.slice().reverse().map(a=>'<p class="booking-notes"><b>'+esc(a.type)+'</b> · '+esc(a.at)+'<br>'+esc(a.actor)+' · '+esc(a.reason)+'</p>').join('')+'</details>');
@@ -39,7 +67,7 @@ const BetaUI = (() => {
   $$('[data-beta-receipt]').forEach(b=>b.onclick=()=>receipt(r,b.dataset.betaReceipt));
  }
  function details(r){
-  tools(r);if(testing)BetaFeatures.details(r);
+  tools(r);
   $$('#detailContent .review-note').filter(n=>n.textContent.includes('Oryan Bookings column G')).forEach(n=>n.textContent='The agreed event price was missing in the import. Use Manage booking to reconcile it against the original documents. Historical payments are preserved.');
   if(!r.cancelled&&(r.total==null||Ledger.review(r))){const n=$('#detailContent .review-note');if(n)n.textContent='This booking needs reconciliation. Use Manage booking to confirm the agreed price and historical paid total against source documents. Original imported figures are preserved.';}
   if(r.cancelled&&r.type!=='Blackout'){
@@ -66,10 +94,10 @@ const BetaUI = (() => {
   if(t==='contractStatus')fields=select('status','Contract status',BetaLedger.statuses,r.contractStatus)+label('date','Status date',today(),'date');
   if(t==='reminder')fields=select('kind','Action',[['plan','Plan a reminder'],['contact','Record contact already made']],'plan')+label('due','Payment due date',BetaLedger.dueDate(r),'date',false)+label('nextFollowUp','Next follow-up',r.nextFollowUp||'','date',false)+label('date','Contact date',today(),'date')+select('method','Contact method',['Phone','Text message','Email','In person','Other'],'Phone')+'<label class="wide">Contact notes <span class="optional">Optional</span><textarea name="note" rows="2" maxlength="500"></textarea></label><label class="wide">Reminder draft<textarea id="betaReminderDraft" readonly rows="4"></textarea></label><label class="wide">Copy for manual follow-up<button class="quiet" type="button" id="betaReminderCopy">Copy reminder</button></label>';
   $('#betaFields').innerHTML=fields+note();
-  if(testing&&t==='edit')BetaFeatures.edit(form,r);
   if(t==='reminder')reminderFields(r,form);
-  if(t==='deposit'){const kind=form.elements.kind,method=form.elements.method;form.querySelector('[data-choice=kind]').onchange=()=>{form.querySelector('[data-choice=method]').hidden=kind.value==='deduct';if(kind.value==='deduct')method.value='Other';};}
+  if(t==='deposit'){const kind=form.elements.kind,method=form.elements.method;kind.onchange=()=>{method.closest('label').hidden=kind.value==='deduct';if(kind.value==='deduct')method.value='Other';};}
   $('#betaExplanation').textContent=t==='reminder'?'Plan due dates or record contact you have already made. Copying a draft does not send it or record a contact. Security deposits are separate from the amount requested.':t==='void'?'Void the mistaken entry without deleting its history. Record the correct payment separately. Voiding is a correction, not a refund.':t==='deposit'?'Record money actually received, refunded or retained from the security deposit. This never changes event payments.':t==='refund'?'Record an event refund already made. This does not send money.':t==='settle'?'Enter the agreed cancellation charge, including $0 if nothing is retained. The difference from net payments becomes a credit/refund to review or a balance to collect.':t==='reconcile'?'Confirm these figures against your source documents. Original imported values remain in change history. No individual historical receipt date will be invented.':t==='restore'?'The date must still be available. Payments, refunds, deposits and history remain unchanged. The event price becomes the charge again.':t==='release'?'Release this blocked date while keeping its history. You can restore it if the date remains available.':t==='contractStatus'?'Record the team’s status only. This does not create, send, sign or verify a contract.':(testing?'Changes save to this beta only. ':'Changes save to Google Sheets. ')+'Existing payments and history are preserved; a new date must be available. Changing contract details resets its status to Not prepared.';
+  if(t==='edit'&&r.type!=='Blackout')editPrice(form);
   dirty=false;$('#detailDialog').close();$('#betaDialog').showModal();form.querySelector('input,select,textarea')?.focus();
  }
  async function submit(e){
@@ -101,11 +129,11 @@ const BetaUI = (() => {
  function reminderFields(r,form){
   const update=()=>{
    const contact=form.elements.kind.value==='contact';
-   ['date','method','note'].forEach(name=>{const fields=[...form.querySelectorAll('[name='+name+']')];fields.forEach(field=>{field.closest(field.type==='radio'?'fieldset':'label').hidden=!contact;field.disabled=!contact;});});
-   form.elements.date.required=contact;form.querySelectorAll('[name=method]').forEach(i=>i.required=contact);
+   ['date','method','note'].forEach(name=>{form.elements[name].closest('label').hidden=!contact;form.elements[name].disabled=!contact;});
+   form.elements.date.required=contact;form.elements.method.required=contact;
    try{$('#betaReminderDraft').value=BetaLedger.reminderText(r,form.elements.due.value);}catch{$('#betaReminderDraft').value='Confirm the payment due date before copying this draft.';}
   };
-  form.querySelector('[data-choice=kind]').onchange=update;form.elements.due.oninput=update;update();
+  form.elements.kind.onchange=update;form.elements.due.oninput=update;update();
   $('#betaReminderCopy').onclick=async()=>{const field=$('#betaReminderDraft');try{if(!navigator.clipboard?.writeText)throw Error();await navigator.clipboard.writeText(field.value);toast('Reminder draft copied. No contact has been recorded.');}catch{field.focus();field.select();toast('Copy the selected reminder text. No contact has been recorded.');}};
  }
  function reminderList(){
@@ -116,7 +144,8 @@ const BetaUI = (() => {
  function openReminders(){if(busy)return;$('#betaReminderFilter').value='all';reminderList();$('#betaRemindersDialog').showModal();}
  function openCalendar(id){
   if(busy)return;calendarReturn=id||'';const form=$('#betaCalendarForm');form.reset();formError('#betaCalendarError','');
-  form.querySelector('[data-calendar-scope]').innerHTML=select('scope','Bookings', [...(id?[['one','This booking']]:[]),['all','All active bookings'],['year','Selected event year'],['month','Displayed calendar month']],id?'one':scope==='year'?'year':'all');
+  form.elements.scope.innerHTML=(id?'<option value="one">This booking</option>':'')+'<option value="all">All active bookings</option><option value="year">Selected event year</option><option value="month">Displayed calendar month</option>';
+  form.elements.scope.value=id?'one':scope==='year'?'year':'all';
   $('#betaCalendarNote').textContent=`All-day calendar file. ${id?'Exports this booking or your selected range. ':''}Selected year: ${$('#year').value}. Cancelled bookings are excluded. This is a one-time export, not a live sync; existing calendar copies are not updated or removed automatically.`;
   if(id)$('#detailDialog').close();$('#betaCalendarDialog').showModal();
  }
@@ -141,7 +170,7 @@ const BetaUI = (() => {
   const closeIcon=$('#detailDialog .close').innerHTML;
   $('#cancelBookingError').insertAdjacentHTML('beforebegin','<label class="wide">Reason for cancellation <span class="required">Required</span><textarea name="reason" required rows="2" maxlength="500"></textarea></label>');
   document.body.insertAdjacentHTML('beforeend',`<dialog id="betaDialog" aria-labelledby="betaTitle"><form id="betaForm"><div class="modal-heading"><div><p class="eyebrow">${testing?'WORKFLOW BETA':'MANAGE BOOKING'}</p><h2 id="betaTitle"></h2></div><button type="button" class="close" aria-label="Close">${closeIcon}</button></div><p class="modal-sub" id="betaGuest"></p><p class="form-note" id="betaExplanation"></p><div class="form-grid" id="betaFields"></div><p class="form-error" id="betaError" role="alert" hidden></p><div class="modal-actions"><button class="quiet" type="button" id="betaBack">Back</button><button class="primary" type="submit">Save change</button></div></form></dialog><dialog id="betaReceiptDialog" aria-labelledby="betaReceiptTitle"><div class="modal-heading"><div><p class="eyebrow">${testing?'BETA RECEIPT':'RECEIPT'}</p><h2 id="betaReceiptTitle">Payment receipt</h2></div><button type="button" class="close" aria-label="Close">${closeIcon}</button></div><div id="betaReceiptContent"></div><div class="modal-actions"><button type="button" class="quiet" id="betaReceiptBack">Close</button><button type="button" class="quiet" id="betaReceiptDownload">Download</button><button type="button" class="primary" id="betaReceiptPrint">Print / save PDF</button></div></dialog>`);
-  document.body.insertAdjacentHTML('beforeend',`<dialog id="betaRemindersDialog" aria-labelledby="betaRemindersTitle"><div class="modal-heading"><div><p class="eyebrow">PAYMENT FOLLOW-UPS</p><h2 id="betaRemindersTitle">Payment reminders</h2></div><button type="button" class="close" aria-label="Close">${closeIcon}</button></div><p class="form-note">Confirmed event balances only. Select a booking to plan a follow-up, copy a reminder draft or record contact.</p><div class="form-grid"><label class="wide">Show<select id="betaReminderFilter"><option value="all">All outstanding balances</option><option value="overdue">Overdue</option><option value="soon">Due within 7 days</option><option value="followup">Follow-up due</option><option value="missing">Due date missing</option></select></label></div><div id="betaReminderRows" class="payment-choices"></div><div class="modal-actions"><button type="button" class="quiet" id="betaRemindersClose">Close</button></div></dialog><dialog id="betaCalendarDialog" aria-labelledby="betaCalendarTitle"><form id="betaCalendarForm"><div class="modal-heading"><div><p class="eyebrow">CALENDAR FILE</p><h2 id="betaCalendarTitle">Export calendar</h2></div><button type="button" class="close" aria-label="Close">${closeIcon}</button></div><p class="form-note" id="betaCalendarNote"></p><div class="form-grid"><div class="wide" data-calendar-scope></div><fieldset class="wide"><legend>Include</legend><label><input type="checkbox" name="blocked" checked> Blocked dates</label><label><input type="checkbox" name="dues"> Payment due dates and balances</label></fieldset></div><p class="form-error" id="betaCalendarError" role="alert" hidden></p><div class="modal-actions"><button type="button" class="quiet" id="betaCalendarClose">Close</button><button type="submit" class="primary">Download calendar</button></div></form></dialog>`);
+  document.body.insertAdjacentHTML('beforeend',`<dialog id="betaRemindersDialog" aria-labelledby="betaRemindersTitle"><div class="modal-heading"><div><p class="eyebrow">PAYMENT FOLLOW-UPS</p><h2 id="betaRemindersTitle">Payment reminders</h2></div><button type="button" class="close" aria-label="Close">${closeIcon}</button></div><p class="form-note">Confirmed event balances only. Select a booking to plan a follow-up, copy a reminder draft or record contact.</p><div class="form-grid"><label class="wide">Show<select id="betaReminderFilter"><option value="all">All outstanding balances</option><option value="overdue">Overdue</option><option value="soon">Due within 7 days</option><option value="followup">Follow-up due</option><option value="missing">Due date missing</option></select></label></div><div id="betaReminderRows" class="payment-choices"></div><div class="modal-actions"><button type="button" class="quiet" id="betaRemindersClose">Close</button></div></dialog><dialog id="betaCalendarDialog" aria-labelledby="betaCalendarTitle"><form id="betaCalendarForm"><div class="modal-heading"><div><p class="eyebrow">CALENDAR FILE</p><h2 id="betaCalendarTitle">Export calendar</h2></div><button type="button" class="close" aria-label="Close">${closeIcon}</button></div><p class="form-note" id="betaCalendarNote"></p><div class="form-grid"><label class="wide">Bookings<select name="scope"></select></label><fieldset class="wide"><legend>Include</legend><label><input type="checkbox" name="blocked" checked> Blocked dates</label><label><input type="checkbox" name="dues"> Payment due dates and balances</label></fieldset></div><p class="form-error" id="betaCalendarError" role="alert" hidden></p><div class="modal-actions"><button type="button" class="quiet" id="betaCalendarClose">Close</button><button type="submit" class="primary">Download calendar</button></div></form></dialog>`);
   $('#betaReminderFilter').onchange=reminderList;$('#betaRemindersClose').onclick=()=>$('#betaRemindersDialog').close();$('#betaRemindersDialog .close').onclick=$('#betaRemindersClose').onclick;
   const closeCalendar=()=>{$('#betaCalendarDialog').close();if(calendarReturn)openDetails(calendarReturn);};$('#betaCalendarDialog').addEventListener('cancel',e=>{e.preventDefault();closeCalendar();});$('#betaCalendarForm').onsubmit=exportCalendar;$('#betaCalendarClose').onclick=closeCalendar;$('#betaCalendarDialog .close').onclick=closeCalendar;
   const back=async()=>{if(!busy){if(dirty&&!await askDiscard())return;dirty=false;$('#betaDialog').close();openDetails(bookingId);}};

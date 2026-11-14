@@ -4,15 +4,6 @@ const Ledger = (() => {
   const methods = ['Cash', 'Card', 'Zelle', 'CashApp', 'Venmo', 'Check', 'Other'];
   const deposits = ['Unknown', 'Owed', 'Not Refunded', 'Refunded'];
   function text(value, limit = 500) { return String(value == null ? '' : value).trim().slice(0, limit); }
-  // Format only complete US numbers; preserve incomplete, international and free text verbatim.
-  function phone(value) {
-    const raw = String(value ?? '');
-    if (!/^[\d\s()+.-]+$/.test(raw)) return raw;
-    let digits = raw.replace(/\D/g, '');
-    if (digits.length === 11 && digits[0] === '1') digits = digits.slice(1);
-    else if (raw.trim().startsWith('+')) return raw;
-    return digits.length === 10 ? '(' + digits.slice(0,3) + ')' + digits.slice(3,6) + '-' + digits.slice(6) : raw;
-  }
   function cents(value) {
     if (typeof value !== 'number' && (typeof value !== 'string' || !/^\d+(\.\d{1,2})?$/.test(value.trim()))) throw Error('Enter a valid amount with no more than two decimal places.');
     const n = Number(value);
@@ -25,32 +16,6 @@ const Ledger = (() => {
     const d = new Date(value + 'T12:00:00Z');
     if (!Number.isFinite(+d) || d.toISOString().slice(0, 10) !== value || +value.slice(0, 4) < 1900 || +value.slice(0, 4) > 2100) throw Error('Choose a valid date between 1900 and 2100.');
     return value;
-  }
-  // Pure cents-based suggestion. Stored agreed prices are never recalculated here.
-  function pricing(value, extras = {}) {
-    if (extras.type === 'Blackout' || !value) return null;
-    const d = new Date(value + 'T12:00:00Z');
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isFinite(+d) || d.toISOString().slice(0, 10) !== value) throw Error('Choose a valid date.');
-    const year = d.getUTCFullYear(), weekday = d.getUTCDay();
-    const utc = (month, day) => { const result = new Date(0); result.setUTCFullYear(year, month - 1, day); return result; };
-    const nth = (month, day, n) => utc(month, 1 + (day - utc(month, 1).getUTCDay() + 7) % 7 + 7 * (n - 1)).toISOString().slice(5, 10);
-    const memorial = utc(6, 0);
-    memorial.setUTCDate(memorial.getUTCDate() - (memorial.getUTCDay() + 6) % 7);
-    // Actual dates only; there are no observed-weekday substitutions.
-    const holidays = {
-      '01-01': "New Year's Day", [nth(1, 1, 3)]: 'Martin Luther King Jr. Day',
-      [nth(2, 1, 3)]: "Presidents' Day", [memorial.toISOString().slice(5, 10)]: 'Memorial Day',
-      '06-19': 'Juneteenth', '07-04': 'Independence Day', [nth(9, 1, 1)]: 'Labor Day',
-      [nth(10, 1, 2)]: 'Columbus Day', '11-11': 'Veterans Day', [nth(11, 4, 4)]: 'Thanksgiving', '12-25': 'Christmas Day'
-    };
-    const rates = {weekend:140000, sunday:120000, weekday:100000, holiday:180000, covers:20000, audio:10000, projector:10000, security:3000};
-    const holiday = holidays[value.slice(5)] || '';
-    const hallCents = holiday ? rates.holiday : weekday === 5 || weekday === 6 ? rates.weekend : weekday === 0 ? rates.sunday : rates.weekday;
-    const parts = [{label: holiday || ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][weekday] + ' rate', cents: hallCents}];
-    for (const [key, label] of [['covers', 'Table Covers'], ['audio', 'Sound'], ['projector', 'Projector']]) {
-      if (extras[key] || (key === 'audio' && extras.sound)) parts.push({label, cents: rates[key]});
-    }
-    return {rates, holiday, hallCents, totalCents: parts.reduce((sum, part) => sum + part.cents, 0), parts, securityHourlyCents: rates.security};
   }
   function booking(input) {
     if (!input || typeof input !== 'object') throw Error('Booking details are required.');
@@ -89,5 +54,31 @@ const Ledger = (() => {
   const balance = r => {const charge=r.beta?r.financialTotal:r.total;return charge==null?0:Math.max(0,Math.round((charge-r.paid)*100)/100);};
   const review = r => (r.beta?r.financialTotal:r.total) == null || (!(r.beta&&r.reconciliation?.resolved) && ( (r.imported && r.sheetBalance == null) || Math.abs(r.importedDifference || 0) > .005));
   const extrasList = r => [r.covers ? 'Covers+' : '', r.projector ? 'Projector' : '', (r.audio || r.sound) ? 'Audio' : '', r.bar ? 'Bar' : '', r.security ? 'Security' : ''].filter(Boolean);
-  return { phone, pricing, types, methods, deposits, text, cents, date, booking, payment, balance, review, extrasList };
+  // Pure cents-based suggestion. Stored agreed prices are never recalculated here.
+  function pricing(value, extras = {}) {
+    if (extras.type === 'Blackout' || !value) return null;
+    const d = new Date(value + 'T12:00:00Z');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isFinite(+d) || d.toISOString().slice(0, 10) !== value) throw Error('Choose a valid date.');
+    const year = d.getUTCFullYear(), weekday = d.getUTCDay();
+    const utc = (month, day) => { const result = new Date(0); result.setUTCFullYear(year, month - 1, day); return result; };
+    const nth = (month, day, n) => utc(month, 1 + (day - utc(month, 1).getUTCDay() + 7) % 7 + 7 * (n - 1)).toISOString().slice(5, 10);
+    const memorial = utc(6, 0);
+    memorial.setUTCDate(memorial.getUTCDate() - (memorial.getUTCDay() + 6) % 7);
+    // Actual dates only; there are no observed-weekday substitutions.
+    const holidays = {
+      '01-01': "New Year's Day", [nth(1, 1, 3)]: 'Martin Luther King Jr. Day',
+      [nth(2, 1, 3)]: "Presidents' Day", [memorial.toISOString().slice(5, 10)]: 'Memorial Day',
+      '06-19': 'Juneteenth', '07-04': 'Independence Day', [nth(9, 1, 1)]: 'Labor Day',
+      [nth(10, 1, 2)]: 'Columbus Day', '11-11': 'Veterans Day', [nth(11, 4, 4)]: 'Thanksgiving', '12-25': 'Christmas Day'
+    };
+    const rates = {weekend:140000, sunday:120000, weekday:100000, holiday:180000, covers:20000, audio:10000, projector:10000, security:3000};
+    const holiday = holidays[value.slice(5)] || '';
+    const hallCents = holiday ? rates.holiday : weekday === 5 || weekday === 6 ? rates.weekend : weekday === 0 ? rates.sunday : rates.weekday;
+    const parts = [{label: holiday || ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][weekday] + ' rate', cents: hallCents}];
+    for (const [key, label] of [['covers', 'Table Covers'], ['audio', 'Sound'], ['projector', 'Projector']]) {
+      if (extras[key] || (key === 'audio' && extras.sound)) parts.push({label, cents: rates[key]});
+    }
+    return {rates, holiday, hallCents, totalCents: parts.reduce((sum, part) => sum + part.cents, 0), parts, securityHourlyCents: rates.security};
+  }
+  return { pricing, types, methods, deposits, text, cents, date, booking, payment, balance, review, extrasList };
 })();
