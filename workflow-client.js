@@ -1,8 +1,10 @@
 /* Live-only transport. No fixture, local record store or fallback on failure. */
 const BetaClient = (() => {
   function call(name,args){
-    if(API)return apiRun(name,args);
-    return new Promise((resolve,reject)=>google.script.run.withSuccessHandler(resolve).withFailureHandler(e=>reject(Error(e.message||'Could not reach Google Sheets.')))[name](...args));
+    // Opt in to the timing envelope; old tabs keep receiving their legacy array.
+    if(name==='listSavedDocuments')args=[args[0],{timings:true}];
+    if(API)return apiRun(name,args).then(result=>name==='listSavedDocuments'&&Array.isArray(result?.documents)?result.documents:result);
+    return new Promise((resolve,reject)=>google.script.run.withSuccessHandler(result=>resolve(name==='listSavedDocuments'&&Array.isArray(result?.documents)?result.documents:result)).withFailureHandler(e=>reject(Error(e.message||'Could not reach Google Sheets.')))[name](...args));
   }
   // Identity for the contract helper. Blank until the next sign-in, or in the Google-hosted app, where the backend gets its own.
   function idToken(){const t=API&&storedToken();return t&&t.idToken||'';}
