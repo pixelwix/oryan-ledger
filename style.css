@@ -321,3 +321,15 @@ html,body,button,a,input,select,textarea,label,summary,dialog{touch-action:manip
 }
 /* Windows focus their close button on opening. Keep the ring for keyboards, not touch. */
 @media(hover:none){dialog .close:focus-visible{outline:0}}
+/* Booking edit price breakdown uses the existing form grid and controls. */
+#priceBreakdown{min-width:0;box-sizing:border-box}
+#priceBreakdown label:has(input[type=checkbox]){display:flex;flex-direction:column;align-items:stretch}
+#priceBreakdown label>span:has(input[type=checkbox]){display:flex;align-items:center;gap:8px;min-height:44px}
+#priceBreakdown input[type=checkbox]{width:auto;flex:none}
+#priceBreakdown .custom-extra{margin-bottom:16px}
+#priceBreakdown .review-note:empty{display:none}
+#priceBreakdown .form-note,#priceBreakdown .review-note{overflow-wrap:anywhere}
+#priceBreakdown{display:block}
+#priceBreakdown>.form-grid{width:100%}
+#priceBreakdown label{display:grid!important;align-items:stretch}
+#priceBreakdown input:not([type=checkbox]){width:100%!important;height:46px;min-height:46px!important;padding:12px;margin:0}
