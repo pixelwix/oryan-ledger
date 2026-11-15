@@ -4,10 +4,10 @@ const Ledger = (() => {
   const methods = ['Cash', 'Card', 'Zelle', 'CashApp', 'Venmo', 'Check', 'Other'];
   const deposits = ['Unknown', 'Owed', 'Not Refunded', 'Refunded'];
   function text(value, limit = 500) { return String(value == null ? '' : value).trim().slice(0, limit); }
-  function cents(value) {
+  function cents(value, maximum = 1000000) {
     if (typeof value !== 'number' && (typeof value !== 'string' || !/^\d+(\.\d{1,2})?$/.test(value.trim()))) throw Error('Enter a valid amount with no more than two decimal places.');
     const n = Number(value);
-    if (!Number.isFinite(n) || n < 0 || n > 1000000 || Math.abs(n * 100 - Math.round(n * 100)) > 0.00001) throw Error('Enter an amount between $0 and $1,000,000 with no more than two decimals.');
+    if (!Number.isFinite(n) || n < 0 || n > maximum || Math.abs(n * 100 - Math.round(n * 100)) > 0.00001) throw Error('Enter an amount between $0 and $1,000,000 with no more than two decimals.');
     return Math.round(n * 100);
   }
   function date(value, optional = false) {
@@ -53,7 +53,39 @@ const Ledger = (() => {
   }
   const balance = r => {const charge=r.beta?r.financialTotal:r.total;return charge==null?0:Math.max(0,Math.round((charge-r.paid)*100)/100);};
   const review = r => (r.beta?r.financialTotal:r.total) == null || (!(r.beta&&r.reconciliation?.resolved) && ( (r.imported && r.sheetBalance == null) || Math.abs(r.importedDifference || 0) > .005));
-  const extrasList = r => [r.covers ? 'Covers+' : '', r.projector ? 'Projector' : '', (r.audio || r.sound) ? 'Audio' : '', r.bar ? 'Bar' : '', r.security ? 'Security' : ''].filter(Boolean);
+  const extrasList = r => [r.covers ? 'Covers+' : '', r.projector ? 'Projector' : '', (r.audio || r.sound) ? 'Audio' : '', r.bar ? 'Bar' : '', r.security ? 'Security' : ''].filter(Boolean).concat((r.lines?.extras||[]).filter(e=>!e.key).map(e=>e.label));
+  const extraRates = {covers:200,projector:100,audio:100,bar:0,security:30};
+  const extraLabels = {covers:'Covers+',projector:'Projector',audio:'Audio',bar:'Bar',security:'Security'};
+  function priceLines(value) {
+    const object=(v,keys)=>{if(!v||typeof v!=='object'||Array.isArray(v)||Object.keys(v).some(k=>!keys.includes(k)))throw Error('Unexpected price breakdown fields.');};
+    object(value,['hall','extras','discount','discountNote']);
+    if(!Array.isArray(value.extras)||value.extras.length>10)throw Error('Choose at most 10 extras.');
+    const seen=new Set();let subtotal=cents(value.hall);
+    const extras=value.extras.map(e=>{
+      object(e,['key','label','amount']);
+      if(e.key!==undefined&&(!Object.hasOwn(extraRates,e.key)||seen.has(e.key)))throw Error('Choose each standard extra only once.');
+      if(typeof e.label!=='string'||!e.label.trim()||e.label.trim().length>60||/[\x00-\x1f\x7f-\x9f]/.test(e.label))throw Error('Extra names must be 1–60 characters without control characters.');
+      if(e.key!==undefined)seen.add(e.key);
+      const n=cents(e.amount);subtotal+=n;
+      return {...(e.key!==undefined?{key:e.key}:{}),label:e.key!==undefined?extraLabels[e.key]:e.label.trim(),amount:n/100};
+    });
+    const discount=cents(value.discount);
+    if(discount>subtotal)throw Error('Discount cannot exceed the price before discount.');
+    if(value.discountNote!==undefined&&(typeof value.discountNote!=='string'||value.discountNote.length>500||/[\x00-\x1f\x7f-\x9f]/.test(value.discountNote)))throw Error('Enter a discount note of at most 500 characters without control characters.');
+    const total=(subtotal-discount)/100;
+    return {lines:{hall:cents(value.hall)/100,extras,discount:discount/100,...(value.discountNote?.trim()?{discountNote:value.discountNote.trim()}:{})},total};
+  }
+  function editLines(r) {
+    if(r.lines)return JSON.parse(JSON.stringify(r.lines));
+    const extras=Object.keys(extraRates).filter(k=>r[k]||(k==='audio'&&r.sound)).map(key=>({key,label:extraLabels[key],amount:extraRates[key]}));
+    const sum=extras.reduce((n,e)=>n+cents(e.amount),0),saved=r.total==null?0:cents(r.total);
+    return {hall:Math.max(0,saved-sum)/100,extras,discount:Math.max(0,sum-saved)/100,...(sum>saved?{discountNote:'Adjustment'}:{})};
+  }
+  function lineChanges(before,after) {
+    const flatten=l=>Object.fromEntries([['Hall',l.hall],...l.extras.map((e,i)=>['Extra '+(e.key||('custom '+l.extras.slice(0,i).filter(p=>!p.key&&p.label===e.label).length))+': '+e.label,e.amount]),['Discount',l.discount],['Discount note',l.discountNote||'']]);
+    const a=flatten(before),b=flatten(after);
+    return [...new Set([...Object.keys(a),...Object.keys(b)])].filter(k=>a[k]!==b[k]).map(field=>({field,before:a[field]??'Not included',after:b[field]??'Removed'}));
+  }
   // Pure cents-based suggestion. Stored agreed prices are never recalculated here.
   function pricing(value, extras = {}) {
     if (extras.type === 'Blackout' || !value) return null;
@@ -80,5 +112,5 @@ const Ledger = (() => {
     }
     return {rates, holiday, hallCents, totalCents: parts.reduce((sum, part) => sum + part.cents, 0), parts, securityHourlyCents: rates.security};
   }
-  return { pricing, types, methods, deposits, text, cents, date, booking, payment, balance, review, extrasList };
+  return { priceLines, editLines, lineChanges, extraRates, extraLabels, pricing, types, methods, deposits, text, cents, date, booking, payment, balance, review, extrasList };
 })();

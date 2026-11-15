@@ -67,15 +67,19 @@ const BetaLedger = (() => {
       if(r.type==='Blackout'&&!['edit','cancel','release','restore'].includes(cmd.type))throw Error('Money and contracts are not available for blocked dates.');
       switch(cmd.type) {
         case 'edit': {
-          allowed(v,['client','phone','contract','type','date','total','due','covers','projector','audio','bar','security','notes','reason']);reason(v.reason);
+          allowed(v,['client','phone','contract','type','date','total','due','covers','projector','audio','bar','security','notes','reason','lines']);reason(v.reason);
           if(r.cancelled)throw Error('Restore the booking before editing it.');
           if(r.type==='Blackout'&&v.type!=='Blackout'||r.type!=='Blackout'&&v.type==='Blackout')throw Error('Release or create a blocked date separately.');
-          const clean=Ledger.booking({...v,total:v.total===''?0:v.total,paid:0});if(clean.type==='Blackout'&&clean.total!==0)throw Error('Blocked dates do not have a price.');if(clean.date!==r.date)checkDate(next.records,r,clean.date);
+          const priced=v.lines!==undefined?Ledger.priceLines(v.lines):null;
+          if(priced&&r.type==='Blackout')throw Error('Blocked dates do not have price breakdowns.');
+          const clean=Ledger.booking({...v,total:priced?0:v.total===''?0:v.total,paid:0});if(clean.type==='Blackout'&&clean.total!==0)throw Error('Blocked dates do not have a price.');if(clean.date!==r.date)checkDate(next.records,r,clean.date);
           if(!clean.contract||next.records.some(b=>b.id!==r.id&&b.contract.toLowerCase()===clean.contract.toLowerCase()))throw Error('Enter a unique contract number.');
           ['client','phone','contract','type','date','due','covers','projector','audio','sound','bar','security','notes'].forEach(k=>r[k]=clean[k]);
-          r.total=v.total===''?null:clean.total;
+          r.total=priced?priced.total:v.total===''?null:clean.total;
+          if(priced)r.lines=priced.lines;else if(r.lines)delete r.lines;
           // Explicit beta extras may be cleared even when an imported note mentions them.
           r.covers=v.covers===true;r.projector=v.projector===true;
+          if(priced){Object.keys(Ledger.extraRates).forEach(k=>r[k]=priced.lines.extras.some(e=>e.key===k));r.sound=r.audio;}
           break;
         }
         case 'payment': {
@@ -117,6 +121,7 @@ const BetaLedger = (() => {
         case 'reconcile': {
           allowed(v,['total','openingPaid','reason']);reason(v.reason);
           if(!r.imported)throw Error('This booking has no imported balance to reconcile.');
+          if(r.lines)delete r.lines;
           r.total=amount(v.total);r.openingPaid=amount(v.openingPaid);
           r.reconciliation={resolved:true,reason:v.reason,createdAt:meta.at,createdBy:meta.actor};break;
         }
@@ -152,8 +157,8 @@ const BetaLedger = (() => {
         default: throw Error('Unknown beta action.');
       }
     }
-    if(previous&&(['cancel','restore'].includes(cmd.type)||(['edit','reconcile'].includes(cmd.type)&&['client','phone','contract','type','date','total','covers','projector','audio','bar','security'].some(k=>previous[k]!==r[k])))){r.contractStatus='Not prepared';r.contractStatusDate='';}
-    r.revision++;r.activity.push({type:cmd.type,at:meta.at,actor:meta.actor,reason:Ledger.text(v.reason||v.note,500),changes:[...Object.keys(v).filter(k=>k!=='reason').map(k=>({field:k,before:previous?.[k]??'',after:k in r?r[k]:v[k]})),...(previous&&previous.contractStatus!==r.contractStatus?[{field:'contractStatus',before:previous.contractStatus,after:r.contractStatus}]:[])]});
+    if(previous&&(['cancel','restore'].includes(cmd.type)||(['edit','reconcile'].includes(cmd.type)&&['client','phone','contract','type','date','total',...(v.lines!==undefined&&JSON.stringify(previous.lines)!==JSON.stringify(r.lines)?['lines']:[]),'covers','projector','audio','bar','security'].some(k=>previous[k]!==r[k])))){r.contractStatus='Not prepared';r.contractStatusDate='';}
+    r.revision++;r.activity.push({type:cmd.type,at:meta.at,actor:meta.actor,reason:Ledger.text(v.reason||v.note,500),changes:[...(cmd.type==='edit'&&v.lines!==undefined?Ledger.lineChanges(Ledger.editLines(previous),r.lines):[]),...Object.keys(v).filter(k=>k!=='reason'&&!(cmd.type==='edit'&&v.lines!==undefined&&k==='lines')).map(k=>({field:k,before:previous?.[k]??'',after:k in r?r[k]:v[k]})),...(previous&&previous.contractStatus!==r.contractStatus?[{field:'contractStatus',before:previous.contractStatus,after:r.contractStatus}]:[])]});
     next.records[next.records.findIndex(b=>b.id===r.id)]=derive(r);
     return next;
   }
