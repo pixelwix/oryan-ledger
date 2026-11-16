@@ -1,23 +1,30 @@
-import {pollDocuments,stopDocumentsPoll,warmDocuments,BACKGROUND_MESSAGE} from './documents-lifecycle.mjs';
+import {pollDocuments,stopDocumentsPoll,warmDocuments,BACKGROUND_MESSAGE,documentOperation,finishDocumentOperation,STILL_SAVING} from './documents-lifecycle.mjs';
 import {contractAllowed,schedulePassed,outdatedContract,refreshContractCard} from './document-state.mjs';
 import {createDocumentProgress} from './document-progress.mjs';
+const records=new WeakMap(),recordBoxes=new WeakMap();
+function remember(api,id,record){let map=records.get(api);if(!map){map=new Map();records.set(api,map);}map.set(id,record);return record;}
 const rowTemplates=new WeakMap(),rowProgress=new WeakMap(),rowStates=new WeakMap();
 import paymentScreen from './screens/record-payment.mjs';
 export async function downloadDocument(api,id,toast){warmDocuments(api);const {blob,filename,preview}=await api.downloadDocument(id),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=filename;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);if(preview)toast('Synthetic PDF preview.');}
-export async function mountDocuments(api,id,toast,attempt=0){
+export async function mountDocuments(api,id,toast){
+ if(api.documentsEnabled===false)return;
  if(location.hash.split('?')[0]!=='#/booking/'+encodeURIComponent(id))return;
  const section=[...document.querySelectorAll('section.card')].find(el=>el.querySelector('h2')?.textContent==='Contract & Documents');if(!section)return;
  const box=section.lastElementChild;stopDocumentsPoll(api);for(const progress of rowProgress.get(box)||[])progress.stop();rowProgress.set(box,[]);let samples=rowTemplates.get(box);if(!samples){samples=[...box.children].map(el=>el.cloneNode(true));rowTemplates.set(box,samples);}const sample=samples[0];
- let rows,record;try{rows=await api.documents(id);record=await api.detail(id);}catch{box.replaceChildren();const retry=document.createElement('button');retry.className='btn btn-quiet btn-sm';retry.textContent='Retry';retry.onclick=()=>mountDocuments(api,id,toast);box.append(retry);if((rows||rowStates.get(box)||[]).some(r=>r.status==='pending'))pollDocuments(api,id,()=>mountDocuments(api,id,toast,attempt+1),Math.min(15000,2500*2**(attempt+1)));return;}
+ let rows,record;try{rows=await api.documents(id);record=(recordBoxes.get(box)?records.get(api)?.get(id):null)||api.cachedDetail?.(id)||await api.detail(id);remember(api,id,record);recordBoxes.set(box,true);}catch{box.replaceChildren();const retry=document.createElement('button');retry.className='btn btn-quiet btn-sm';retry.textContent='Retry';retry.onclick=()=>mountDocuments(api,id,toast);box.append(retry);watchPending(rows||rowStates.get(box)||[]);return;}
  if(!box.isConnected||location.hash.split('?')[0]!=='#/booking/'+encodeURIComponent(id))return;
  for(const op of operationMap(api).values())if(op.bookingId===id&&op.uncertain&&!rows.some(r=>r.id===op.requestId))rows.push({id:op.requestId,status:'pending',localRetry:op.retry});
- if(id!=='sophia'){const badge=section.querySelector('.card-header .badge');if(badge)badge.textContent=rows.some(row=>row.status==='saved')?'Saved':rows.length?'Saving pending':'No saved copies';}
+ if(id!=='sophia'){const badge=section.querySelector('.card-header .badge');if(badge)badge.textContent=rows.some(row=>row.status==='saved')?'Saved':rows.some(row=>row.status==='pending'&&documentOperation(api,row.id))?'Saving pending':'No saved copies';}
  for(const [key,op] of operationMap(api))if(op.bookingId===id&&rows.some(r=>r.id===op.requestId&&r.status==='saved'))operationMap(api).delete(key);
  const previous=rowStates.get(box)||[];rowStates.set(box,rows.map(r=>({id:r.id,status:r.status})));
+ const completed=rows.filter(r=>r.status!=='pending'&&documentOperation(api,r.id));
+ if(completed.some(r=>r.status==='saved'&&r.kind==='contract')){record=await api.detail(id);remember(api,id,record);}
+ for(const row of completed)finishDocumentOperation(api,row.id);
  refreshContractCard(record);
  if(rows.some(r=>r.status==='saved'&&previous.some(p=>p.id===r.id&&p.status!=='saved'))){toast('PDF saved.');document.body.dispatchEvent(new CustomEvent('contract-saved'));}
- box.replaceChildren();for(const [index,row] of rows.entries()){const el=(samples[index]||sample).cloneNode(true);el.dataset.documentId=row.id;el.querySelector('strong').textContent=row.status==='saved'?row.filename:row.status==='pending'?'Saving...':'PDF save not confirmed';el.querySelector('span').textContent=row.status!=='saved'?(row.status==='failed'?'Save not confirmed · Retry':'Saving...'):row.display||(row.preview?el.querySelector('span').textContent:null)||(row.page_count+' pages · Generated '+new Date(row.generated_at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric',timeZone:'UTC'}));const changed=outdatedContract(row,record);if(changed){const note=document.createElement('p');note.className='form-label-note';note.textContent='Out of date - booking changed on '+changed;el.querySelector('strong').parentElement.append(note);}const button=el.querySelector('button');if(row.status!=='saved')button.className='btn btn-quiet';button.textContent=row.status==='saved'?'Download':'Retry';button.onclick=async()=>{button.disabled=true;try{if(row.status==='saved')await downloadDocument(api,row.id,toast);else{toast('Saving PDF…');if(row.localRetry)await row.localRetry();else {const progress=createDocumentProgress(el.firstElementChild,row.kind==='contract'?'contract':'receipt');try{const result=await api.retryDocument(row.id);await progress.finish(result?.status==='saved');}catch(error){progress.error(error.message);throw error;}}refreshContractCard(await api.detail(id));document.body.dispatchEvent(new CustomEvent('contract-saved'));await mountDocuments(api,id,toast);}}catch(e){toast(e.message);}finally{button.disabled=false;}};if(row.status==='pending'){const progress=createDocumentProgress(el.firstElementChild,row.kind==='contract'?'contract':'receipt',Date.parse(row.generated_at)||Date.now());rowProgress.get(box).push(progress);}box.append(el);}
- if(rows.some(r=>r.status==='pending'))pollDocuments(api,id,()=>mountDocuments(api,id,toast));
+ box.replaceChildren();for(const [index,row] of rows.entries()){const el=(samples[index]||sample).cloneNode(true);el.dataset.documentId=row.id;el.querySelector('strong').textContent=row.status==='saved'?row.filename:row.status==='pending'?(documentOperation(api,row.id)?'Saving...':'PDF pending'):'PDF save not confirmed';el.querySelector('span').textContent=row.status!=='saved'?(row.status==='failed'?(row.retry_message||'Save not confirmed · Retry'):documentOperation(api,row.id)?'Saving...':'Use Retry to check or save this PDF'):row.display||(row.preview?el.querySelector('span').textContent:null)||(row.page_count+' pages · Generated '+new Date(row.generated_at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric',timeZone:'UTC'}));const changed=outdatedContract(row,record);if(changed){const note=document.createElement('p');note.className='form-label-note';note.textContent='Out of date - booking changed on '+changed;el.querySelector('strong').parentElement.append(note);}const button=el.querySelector('button');if(row.status!=='saved')button.className='btn btn-quiet';button.textContent=row.status==='saved'?'Download':'Retry';button.onclick=async()=>{button.disabled=true;try{if(row.status==='saved')await downloadDocument(api,row.id,toast);else{toast('Saving PDF…');if(row.localRetry)await row.localRetry();else {const progress=createDocumentProgress(el.firstElementChild,row.kind==='contract'?'contract':'receipt');try{documentOperation(api,row.id,true);const result=await api.retryDocument(row.id);await progress.finish(result?.status==='saved');}catch(error){progress.error(error.message);throw error;}}await mountDocuments(api,id,toast);}}catch(e){toast(e.message);}finally{button.disabled=false;}};if(row.status==='pending'&&documentOperation(api,row.id)&&Date.now()-documentOperation(api,row.id).started<300000){const progress=createDocumentProgress(el.firstElementChild,row.kind==='contract'?'contract':'receipt',Date.parse(row.generated_at)||Date.now());rowProgress.get(box).push(progress);}box.append(el);}
+ watchPending(rows);
+ function watchPending(rows){const row=rows.find(r=>r.status==='pending'&&documentOperation(api,r.id));if(!row)return;pollDocuments(api,id,()=>mountDocuments(api,id,toast),3000,'#/booking/'+encodeURIComponent(id),row.id,()=>{for(const progress of rowProgress.get(box)||[])progress.stop();const note=document.createElement('p');note.textContent=STILL_SAVING;const refresh=document.createElement('button');refresh.className='btn btn-quiet';refresh.textContent='Refresh Saved copies';refresh.onclick=()=>mountDocuments(api,id,toast);box.append(note,refresh);});}
 }
 
 // A row-menu submission can complete while Bookings is still open. Watch only
@@ -26,10 +33,12 @@ function watchListDocument(api,id,requestId,toast){
  const hash=location.hash.split('?')[0];if(!['','#/','#/bookings'].includes(hash))return;
  pollDocuments(api,id,async()=>{
   const row=(await api.documents(id)).find(r=>r.id===requestId);
-  if(row?.status==='saved'){stopDocumentsPoll(api);if(operationMap(api).get(id)?.requestId===requestId)operationMap(api).delete(id);toast('PDF saved.');document.body.dispatchEvent(new CustomEvent('contract-saved'));}
-  else if(row?.status==='failed'){stopDocumentsPoll(api);toast('Save not confirmed. Retry from Saved copies.');}
+  if(row?.status==='saved'){finishDocumentOperation(api,requestId);stopDocumentsPoll(api);if(operationMap(api).get(id)?.requestId===requestId)operationMap(api).delete(id);toast('PDF saved.');document.body.dispatchEvent(new CustomEvent('contract-saved'));}
+  else if(row?.status==='failed'){finishDocumentOperation(api,requestId);stopDocumentsPoll(api);toast('Save not confirmed. Retry from Saved copies.');}
   else watchListDocument(api,id,requestId,toast);
- },2500,hash);
+ },3000,hash,requestId,()=>{
+  toast(STILL_SAVING);const notice=document.createElement('div');notice.className='alert alert-info';const text=document.createElement('p');text.textContent=STILL_SAVING;const refresh=document.createElement('button');refresh.className='btn btn-quiet';refresh.textContent='Refresh Saved copies';refresh.onclick=async()=>{try{const row=(await api.documents(id)).find(r=>r.id===requestId);if(row?.status==='saved'||row?.status==='failed'){finishDocumentOperation(api,requestId);notice.remove();toast(row.status==='saved'?'PDF saved.':'Save not confirmed. Retry from Saved copies.');document.body.dispatchEvent(new CustomEvent('contract-saved'));}}catch(error){toast(error.message);}};notice.append(text,refresh);document.querySelector('main')?.prepend(notice);
+ });
 }
 // Keep a dismissed, uncertain request in memory. Reopening or retrying resumes
 // this operation, never a newly generated contract. Nothing is stored on disk.
@@ -87,11 +96,12 @@ export async function contractSheet(api,id,toast){
  const finish=async row=>{
   operation.result=row;await progress?.finish(row.status==='saved');dismiss();if(row.status==='saved')map.delete(id);
   toast(row.status==='saved'?'PDF saved.':BACKGROUND_MESSAGE);
-  try{if(row.status==='saved'){refreshContractCard(row.record||await api.detail(id));document.body.dispatchEvent(new CustomEvent('contract-saved'));}await mountDocuments(api,id,toast);if(row.status==='pending'&&['','#/','#/bookings'].includes(location.hash.split('?')[0]))watchListDocument(api,id,operation.requestId,toast);}catch{toast('PDF status received. Reopen Saved copies to refresh.');}
+  try{if(row.status==='saved'){finishDocumentOperation(api,operation.requestId);refreshContractCard(remember(api,id,row.record||await api.detail(id)));document.body.dispatchEvent(new CustomEvent('contract-saved'));}await mountDocuments(api,id,toast);if(row.status==='pending'&&['','#/','#/bookings'].includes(location.hash.split('?')[0]))watchListDocument(api,id,operation.requestId,toast);}catch{toast('PDF status received. Reopen Saved copies to refresh.');}
  };
  async function run(){
   if(operation?.promise)return operation.promise;
   if(!operation){operation={bookingId:id,requestId:'contract-'+crypto.randomUUID(),values:{...Object.fromEntries(Object.entries(values).map(([k,v])=>[k,v.value])),confirmSchedule:check.checked}};map.set(id,operation);}
+  documentOperation(api,operation.requestId,true);
   operation.retry=run;operation.error=null;operation.result=null;operation.started=Date.now();
   busy();
   operation.promise=(async()=>{
@@ -127,6 +137,7 @@ export async function receiptRow(rows,transactionId){const digest=new Uint8Array
 const receiptWaits=new WeakMap();
 export function issueReceiptWithProgress(api,bookingId,requestId,toast){
  warmDocuments(api);
+ documentOperation(api,requestId,true);
  let waits=receiptWaits.get(api);if(!waits){waits=new Map();receiptWaits.set(api,waits);}if(waits.has(requestId))return waits.get(requestId);
  const host=document.createElement('div');host.dataset.receiptProgress='';host.className='card';document.body.querySelector('main')?.prepend(host);if(!host.isConnected)document.body.append(host);
  const observer=new MutationObserver(()=>{if(!host.isConnected)(document.querySelector('main')||document.body).prepend(host);});observer.observe(document.documentElement,{childList:true,subtree:true});

@@ -1,5 +1,5 @@
 export const DOCUMENTS_WARM_MINUTES=4;
-export const DOCUMENTS_POLL_MS=2500;
+export const DOCUMENTS_POLL_MS=3000;
 export const BACKGROUND_MESSAGE='Saving in the background. It will appear in Saved copies in about 10-30 seconds.';
 const controllers=new WeakMap();
 export function startDocumentsWarm(api,{enabled=true,minutes=DOCUMENTS_WARM_MINUTES,allowed=()=>true}={}){
@@ -16,18 +16,21 @@ export function startDocumentsWarm(api,{enabled=true,minutes=DOCUMENTS_WARM_MINU
  const controller={warm,stop,sync:()=>{if(allowed())signedOut=false;change();}};controllers.set(api,controller);void warm();return controller;
 }
 export function warmDocuments(api){void controllers.get(api)?.warm();}
-// One pending poll per adapter. Changing route, hiding, going offline or signing
-// out cancels timers; no overlapping list requests. Visible detail resumes once.
-const polls=new WeakMap();
-export function pollDocuments(api,id,refresh,initialDelay=DOCUMENTS_POLL_MS,routeHash='#/booking/'+encodeURIComponent(id)){
- polls.get(api)?.stop();let timer,stopped=false,busy=false,delay=initialDelay;
- const active=()=>!stopped&&location.hash.split('?')[0]===routeHash&&document.visibilityState==='visible'&&navigator.onLine!==false;
+// Page-session operations only. Dormant server intents never enter this map.
+const sessions=new WeakMap(),polls=new WeakMap();
+export const STILL_SAVING='Still saving. Check Saved copies later.';
+export function documentOperation(api,id,start=false){let map=sessions.get(api);if(!map){map=new Map();sessions.set(api,map);}if(start)map.set(id,{started:Date.now(),step:0});return map.get(id);}
+export function finishDocumentOperation(api,id){sessions.get(api)?.delete(id);}
+export function pollDocuments(api,id,refresh,initialDelay=DOCUMENTS_POLL_MS,routeHash='#/booking/'+encodeURIComponent(id),requestId=id,onTimeout=()=>{}){
+ polls.get(api)?.stop();const operation=documentOperation(api,requestId);if(!operation||api.documentsEnabled===false)return;
+ let timer,stopped=false,busy=false;
+ const active=()=>!stopped&&api.documentsEnabled!==false&&location.hash.split('?')[0]===routeHash&&document.visibilityState==='visible'&&navigator.onLine!==false;
  const clear=()=>clearTimeout(timer);
- const schedule=()=>{clear();if(active())timer=setTimeout(tick,delay);};
- async function tick(){if(!active()||busy)return;busy=true;try{await refresh();}catch{delay=Math.min(15000,delay*2);schedule();}finally{busy=false;}}
+ const schedule=()=>{clear();if(!active())return;const remaining=300000-(Date.now()-operation.started);if(remaining<=0){stop();onTimeout();return;}const delay=[3000,3000,5000,8000,15000,30000][Math.min(operation.step,5)];timer=setTimeout(tick,Math.min(delay,remaining));};
+ async function tick(){if(!active()||busy)return;if(Date.now()-operation.started>=300000){stop();onTimeout();return;}busy=true;operation.step++;try{await refresh();}catch{schedule();}finally{busy=false;}}
  const change=()=>{clear();if(active())schedule();};
  const route=()=>{if(location.hash.split('?')[0]!==routeHash)stop();};
- const out=e=>{if(e.target.closest('#btnSignOut'))stop();};
+ const out=e=>{if(e.target.closest('#btnSignOut')){sessions.delete(api);stop();}};
  function stop(){stopped=true;clear();document.removeEventListener('visibilitychange',change);window.removeEventListener('online',change);window.removeEventListener('offline',change);window.removeEventListener('hashchange',route);window.removeEventListener('pagehide',stop);document.removeEventListener('click',out,true);}
  document.addEventListener('visibilitychange',change);window.addEventListener('online',change);window.addEventListener('offline',change);window.addEventListener('hashchange',route);window.addEventListener('pagehide',stop);document.addEventListener('click',out,true);
  polls.set(api,{stop});schedule();

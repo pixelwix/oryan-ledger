@@ -99,5 +99,6 @@ async function gate(){
 }
 async function bootAuth(){await auth.start();await gate();}
 if(auth)await bootAuth();
+ledgerApi.documentsEnabled=appConfig?.documentsEnabled!==false;
 documentsWarm=startDocumentsWarm(ledgerApi,{enabled:appConfig?.documentsEnabled!==false,minutes:appConfig?.documentsWarmMinutes??DOCUMENTS_WARM_MINUTES,allowed:()=>!auth||auth.state==='signed-in'});
 window.addEventListener('hashchange',render);await render();

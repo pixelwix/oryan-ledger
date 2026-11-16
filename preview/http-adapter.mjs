@@ -4,7 +4,7 @@ import {createLedgerApi,balance} from './adapter.mjs';
 export function localWorkerOrigin(value){const url=new URL(value);if(url.protocol!=='http:'||!['localhost','127.0.0.1','[::1]'].includes(url.hostname)||url.username||url.password||url.pathname!=='/'||url.search||url.hash)throw Error('Worker must be a loopback HTTP origin.');return url.origin;}
 export function hostedOrigin(value){const url=new URL(value);if(url.protocol!=='https:'||url.username||url.password||url.pathname!=='/'||url.search||url.hash)throw Error('Worker must be an exact https origin.');return url.origin;}
 export function createHttpLedgerApi(presentation,{origin,timeout=4000,retries=1,fetcher=fetch,onState=()=>{},auth=null,trustedOrigin=false}){
- let renderCache=null;const details=new Map(),pending=new Map();
+ let documentsEnabled=true,renderCache=null;const details=new Map(),pending=new Map();
  origin=auth&&trustedOrigin?hostedOrigin(origin):localWorkerOrigin(origin);const helpers=createLedgerApi(presentation);
 
  // Sign-in (Stage 4): every Worker call carries the Google ID token; a 401 asks auth to renew/re-sign-in and retries once
@@ -27,7 +27,7 @@ export function createHttpLedgerApi(presentation,{origin,timeout=4000,retries=1,
    const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),timeout);
    try{const response=await fetcher(url,{signal:controller.signal,credentials:'omit',cache:'no-store',headers});
     if(auth&&(response.status===401||response.status===403)){const e=await authFailure(response);if(response.status===401&&reauth++<1){attempt--;error=e;continue;}throw e;}
-    if(!response.ok){const e=Error('Unable to load ledger ('+response.status+').');e.retry=response.status>=500;throw e;}return await response.json();}
+    if(!response.ok){const e=Error('Unable to load ledger ('+response.status+').');e.retry=response.status>=500;if(path==='/documents'&&response.status===503){documentsEnabled=false;e.retry=false;}throw e;}return await response.json();}
    catch(e){error=e;if(e.retry===false)break;if(attempt<retries)await new Promise(resolve=>setTimeout(resolve,150*(attempt+1)));}finally{clearTimeout(timer);}
   }
   if(error?.auth)throw error;
@@ -76,8 +76,8 @@ export function createHttpLedgerApi(presentation,{origin,timeout=4000,retries=1,
   return rows.sort(sort==='guest'?(a,b)=>a.client.localeCompare(b.client):sort==='balance'?(a,b)=>(b.balance||0)-(a.balance||0):(a,b)=>a.date.localeCompare(b.date));
  }
  async function payments(params={}){let out=[],offset=0;for(;;){const page=await get('/payments',{...params,offset,limit:500});out=out.concat(page.records);if(out.length>=page.summary.count)return out;offset+=500;if(offset>50000)throw Error('Narrow the payment search.');}}
- return {...helpers,beginRead(){renderCache=new Map();},endRead(){renderCache=null;},mode:'http',list,search:q=>list({q}),
-  detail,
+ return {...helpers,beginRead(){renderCache=new Map();},endRead(){renderCache=null;},mode:'http',get documentsEnabled(){return documentsEnabled;},set documentsEnabled(value){documentsEnabled=value!==false;},list,search:q=>list({q}),
+  detail,cachedDetail:id=>{const r=details.get(id);return r?{...r,client:r.guest??r.client,balance:balance(r)}:null;},
   me:()=>request('/me'),counts:()=>get('/counts'),summary:async()=>{const [s,p]=await Promise.all([get('/summary'),get('/payments',{limit:1})]);return {...s,balance:s.balanceToCollect,novemberPayments:s.monthPayments,novemberEvents:s.eventsThisMonth,depositHeld:p.summary.depositHeld};},
   attention:async()=> (await get('/attention')).items,insights:year=>get('/insights',{year:year||'2026'}),payments,
   calendar:async(year,month)=>(await get('/calendar',{year,month})).records,
