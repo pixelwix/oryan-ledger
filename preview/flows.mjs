@@ -1,0 +1,280 @@
+const rentalText=w=>!w?'—':typeof w==='string'?w:[w.start,w.end].map(t=>t==='00:00'?'Midnight':`${Number(t.slice(0,2))%12||12}:${t.slice(3)} ${Number(t.slice(0,2))<12?'AM':'PM'}`).join(' – ');
+import {commandSheet} from './command-sheet.mjs';
+import {readStates} from './read-states.mjs';
+import {mountLockedBehavior} from './locked-behaviors.mjs';
+import {money,balance} from './adapter.mjs';
+import {availableDay} from './calendar-parts.mjs';
+const $=id=>document.getElementById(id);
+const val=id=>$(id).value;
+const number=id=>Number(val(id));
+const standard=['Covers','Projector','Audio','Bar','Security'];
+function replaceMoney(root,pairs){
+ const walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);let node;
+ while((node=walker.nextNode())){
+  node.textContent=node.textContent.replace(/\$[\d,]+(?:\.\d{2})?/g,match=>{
+   const number=Number(match.replace(/[$,]/g,''));const found=pairs.find(([before])=>before!=null&&before===number);if(!found)return match;
+   return match.includes('.')?money(found[1]):'$'+Number(found[1]||0).toLocaleString('en-US');
+  });
+ }
+}
+async function hydrateDetail(api,route){
+ const r=await api.detail(route.id),old=api.original('sophia');
+ const pairs=[[old.total,r.total],[old.paid,r.paid],[balance(old),r.balance],[old.depositHeld,r.depositHeld]];
+ if(route.screen==='booking'||route.screen==='record-payment'||route.screen==='edit-booking')replaceMoney(document.body,pairs);
+ if(r.id!=='sophia'||r.client!==old.client||r.phone!==old.phone||r.contract!==old.contract||r.type!==old.type){
+  const walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT);let node;
+  while((node=walker.nextNode()))node.textContent=(node.textContent.includes('Sophia Martinez & Carlos Ray')?node.textContent.replaceAll('Sophia Martinez & Carlos Ray',r.client):node.textContent.replaceAll('Sophia Martinez',r.client)).replaceAll(old.contract,r.contract).replaceAll(old.phone,r.phone||'—').replaceAll('Wedding',r.type);
+  document.querySelectorAll('a[href*="/booking/sophia"]').forEach(a=>a.href=a.getAttribute('href').replace('/booking/sophia','/booking/'+encodeURIComponent(r.id)));
+ }
+ if(route.screen==='booking'){
+  const walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT);let node;while((node=walker.nextNode())){node.textContent=node.textContent.replace('martinez.ray@example.invalid',r.email||'—').replace('10:00 AM – Midnight',rentalText(r.rentalWindow)).replace('160 Guests',r.guestCount!=null?String(r.guestCount)+' Guests':'—');}
+ }
+ if(route.screen==='record-payment'){$('paymentAmount').value=r.balance?.toFixed(2)||'0.00';if(r.balance==null){$('paymentAmount').setCustomValidity('Set the agreed price before recording a payment.');}}
+ if(route.screen==='edit-booking'){
+  const lines=r.lines||{hall:r.total||0,extras:[],discount:0};
+  if(r.total==null)$('displayWasTotal').textContent='Not agreed';
+  $('lineHall').value=lines.hall.toFixed(2);$('lineDiscount').value=lines.discount.toFixed(2);
+  standard.forEach(name=>{const line=lines.extras.find(e=>e.key===name.toLowerCase());$('check'+name).checked=!!line;$('price'+name).value=(line?.amount||0).toFixed(2);$('price'+name).disabled=!line;});
+  const custom=lines.extras.filter(e=>!e.key);const container=$('customExtrasContainer');const sample=container.firstElementChild.cloneNode(true);container.replaceChildren();
+  for(const line of custom){const row=sample.cloneNode(true);row.querySelector('.custom-label').value=line.label;row.querySelector('.custom-amount').value=line.amount.toFixed(2);container.append(row);}
+ }
+ if(route.screen==='booking'&&(r.id!=='sophia'||r.revision!==old.revision||JSON.stringify(r.lines)!==JSON.stringify(old.lines)||r.paid!==old.paid)){
+  const table=document.querySelector('.breakdown-table tbody');const row=table.firstElementChild.cloneNode(true);table.replaceChildren();
+  const lines=r.lines||{hall:r.total||0,extras:[],discount:0};
+  const parts=[['Hall Rental Base',lines.hall],...lines.extras.map(e=>[e.label,e.amount]),['Discount',-lines.discount],['Total Agreed Event Charge',r.financialTotal],['Total Payments Recorded So Far',-r.paid],['Remaining Balance Due',r.balance]];
+  parts.forEach(([label,value],i)=>{const tr=row.cloneNode(true);tr.children[0].textContent=label;tr.children[1].textContent=(value<0?'-':'')+money(Math.abs(value||0));if(i===parts.length-1)tr.className='breakdown-balance-row';if(i===parts.length-3)tr.className='breakdown-total-row';table.append(tr);});
+  const timeline=document.querySelector('.timeline'),sample=timeline.firstElementChild.cloneNode(true);timeline.replaceChildren();
+  r.payments.slice().reverse().forEach(t=>{const item=sample.cloneNode(true);const spans=item.querySelectorAll('h5 span');spans[0].textContent=money(t.amount)+' · '+t.method;spans[1].textContent=t.date;item.querySelector('p').textContent=t.note||'Recorded in the fictional local ledger';timeline.append(item);});
+  const history=document.querySelector('.history-entry').parentElement,sampleHistory=history.firstElementChild.cloneNode(true);history.replaceChildren();
+  r.activity.slice().reverse().forEach(entry=>{const item=sampleHistory.cloneNode(true);item.querySelector('strong').textContent=entry.at;item.querySelector('.history-meta span').textContent=entry.actor;const paras=item.querySelectorAll('p');paras[0].textContent=entry.type;paras[1].textContent='Reason: '+entry.reason;history.append(item);});
+  document.querySelector('details summary span').textContent='Change History & Audit Log ('+r.activity.length+' revisions)';
+  if(r.balance===0){document.querySelector('.booking-header-card .badge').textContent='Paid in full';document.querySelector('.booking-header-card .badge-overdue')?.remove();document.querySelector('.breakdown-table').parentElement.querySelector('.alert-warning')?.remove();}
+  if(r.id!=='sophia'){
+   document.querySelector('.booking-header-card h1 + p').textContent=r.type+' · '+r.date+' · Contract #'+r.contract;
+   document.querySelectorAll('.booking-header-card strong').forEach(el=>{if(el.textContent.includes('@'))el.textContent=r.email||'—';});
+   document.querySelectorAll('.saved-document,.document-card').forEach(el=>el.remove());
+  }
+ }
+ if(api.mode==='http'&&route.screen==='booking'&&r.due!==old.due){document.querySelector('.booking-header-card .badge-overdue')?.remove();document.querySelector('.booking-header-card > div:last-child > div:last-child').textContent=r.due?'Due '+r.due:'—';}
+ if(route.screen==='booking'&&r.financialTotal==null){const header=document.querySelector('.booking-header-card');header.querySelector('.badge').textContent=r.cancelled?'Cancelled · charge not set':'Price not agreed';header.children[1].children[1].textContent='Not agreed';}
+ if(route.screen==='booking'&&r.cancelled){
+  const cancel=document.querySelector('[data-action="booking-7"]');if(cancel)cancel.textContent='Restore booking';
+  const badge=document.querySelector('.booking-header-card .badge');if(badge)badge.textContent='Cancelled';
+ }
+ return r;
+}
+function linesFromForm(){return {hall:number('lineHall'),discount:number('lineDiscount'),discountNote:val('lineDiscountNote'),extras:[
+ ...standard.filter(n=>$('check'+n).checked).map(n=>({key:n.toLowerCase(),label:n,amount:number('price'+n)})),
+ ...[...document.querySelectorAll('.custom-extra-row')].map(row=>({label:row.querySelector('.custom-label').value,amount:Number(row.querySelector('.custom-amount').value)}))
+]};}
+export async function mountFlows({api,route,go,toast,closeSheet}){
+ const mountBody=document.body;
+ const screen=route.screen;let r,saving=false;
+ if(['booking','edit-booking','record-payment'].includes(screen))r=await hydrateDetail(api,route);
+ if(screen==='overview')await mountOverview(api);
+ if(screen==='payments')await mountPayments(api);
+ mountLockedBehavior(screen,api,route,toast,r);
+ // Delegate actions once per mounted screen. Removed DOM listeners are collected with the screen.
+ document.body.addEventListener('submit',async e=>{
+  e.preventDefault();if(e.target.dataset.commandForm)return;if(saving||!e.target.reportValidity())return;
+  saving=true;const submit=e.target.querySelector('[type=submit]');if(submit)submit.disabled=true;
+  document.getElementById('read-error')?.remove();
+  try{
+   if(screen==='record-payment'){await api.commands('payment',route.id,{amount:number('paymentAmount'),date:val('paymentDate'),method:val('paymentMethod'),note:val('paymentNote')});go('#/booking/'+route.id);}
+   if(screen==='edit-booking'){await api.commands('edit',route.id,{lines:linesFromForm(),reason:val('changeReason')});go('#/booking/'+route.id);}
+   if(screen==='new-booking'){
+    const extras=standard.filter(n=>$('extra'+n).checked).map(n=>({key:n.toLowerCase(),label:n,amount:api.intakeRates[n.toLowerCase()]}));
+    const total=api.priceLines({hall:number('newHallPrice'),extras,discount:0}).total;
+    const created=await api.createBooking({client:val('guestName'),phone:val('guestPhone'),date:val('eventDate'),type:val('eventType'),total,paid:number('initialPaid'),paymentDate:api.today,method:val('initialMethod'),...Object.fromEntries(standard.map(n=>[n.toLowerCase(),$('extra'+n).checked]))},{lines:{hall:number('newHallPrice'),extras,discount:0},depositStatus:val('depositStatus'),email:val('guestEmail'),guestCount:number('guestCount')});
+    go('#/booking/'+created.id);
+   }
+  }catch(error){toast(error.message);if(api.mode==='http'){const state=readStates({states:await api.presentation('states')},()=>e.target.requestSubmit());const banner=state.show('error');e.target.prepend(banner);banner.querySelector('p').textContent=error.message;banner.querySelector('strong')?.replaceChildren(document.createTextNode(error.status===409?'Booking changed. Review the refreshed data before retrying.':'Unable to save. Your form values are kept.'));if(error.status===409){const current=await api.detail(route.id);r=current;banner.querySelector('p').textContent=error.message+' Latest agreed: '+money(current.financialTotal)+'; paid: '+money(current.paid)+'; balance: '+money(current.balance)+'. Review before retrying.';}}}
+  finally{saving=false;if(submit)submit.disabled=false;}
+ });
+ document.body.addEventListener('click',async e=>{
+  const reconcile=e.target.closest('a[href^="#/booking/"]');if(reconcile?.textContent.trim()==='Reconcile'){e.preventDefault();e.stopPropagation();const id=decodeURIComponent(reconcile.hash.slice('#/booking/'.length).split(/[/?]/)[0]);await commandSheet({api,id,kind:'reconcile',toast,go});return;}
+  const action=e.target.closest('[data-action]');
+  if(action&&action.tagName!=='FORM'){
+   try{
+    const key=action.dataset.action;
+    if(['booking-2','booking-3','booking-4','booking-5','booking-8','booking-9'].includes(key)){await commandSheet({api,id:route.id,kind:{'booking-2':'deposit','booking-3':'refund','booking-4':'reminder','booking-5':'contractStatus','booking-8':'depositRefund','booking-9':'deduct'}[key],toast,go});return;}
+    if(key==='booking-6'&&api.ics){const text=await api.ics(route.id),url=URL.createObjectURL(new Blob([text],{type:'text/calendar;charset=utf-8'})),link=document.createElement('a');link.href=url;link.download='booking.ics';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);return;}
+    if(key==='overview-0'){await api.commands('markSettled','elena',{reason:'Owner marked the fictional past event settled.'});action.textContent='Settled ✓';action.disabled=true;action.style.opacity='0.6';return;}
+    if(key==='booking-7'){const current=await api.detail(route.id);await api.commands(current.cancelled?'restore':'cancel',route.id,{reason:'Owner changed the fictional reservation status.'});go('#/bookings');return;}
+    toast('Local preview: '+action.textContent.trim()+'. No external action was taken.');
+   }catch(error){toast(error.message);}
+  }
+  const release=e.target.closest('.row-actions-cell button');if(release?.textContent.trim()==='Release hold'){await api.commands('release','hold',{reason:'Owner released the fictional date hold.'});go('#/bookings');}
+  const cancel=e.target.closest('.dropdown-item');if(cancel?.tagName==='BUTTON'&&cancel.textContent.includes('Cancel')){
+   const row=cancel.closest('.ledger-row'),record=(await api.list()).find(r=>r.contract===row.dataset.contract);if(record){await api.commands('cancel',record.id,{reason:'Owner cancelled the fictional booking.'});go('#/bookings');}
+  }
+ });
+ if(screen==='bookings')await mountBookings(api);
+ if(screen==='calendar')await mountCalendar(api,go);
+ if(screen==='new-booking'){
+  if(route.query.has('date'))$('eventDate').value=route.query.get('date');
+  const check=async()=>{const taken=(await api.list()).some(r=>r.date===val('eventDate')&&!r.cancelled);$('dateCheckStatus').textContent=taken?'Date already booked or blocked':'Date available ✓';$('eventDate').setCustomValidity(taken?'This date is already booked or blocked.':'');return !taken;};
+  $('eventDate').addEventListener('change',check);
+  $('btnContinueStep2').addEventListener('click',async()=>{if(!await check()||!['guestName','guestPhone','guestEmail','eventDate'].every(id=>$(id).reportValidity())){$('step1Section').style.display='block';$('step2Section').style.display='none';}});
+ }
+ if(screen==='insights'){
+  const initialData=await api.insights();
+  const mixSamples=[...document.querySelectorAll('.bar-chart-container')].map(group=>group.querySelector('.bar-row').cloneNode(true));
+  const applyInsights=async e=>{
+   const data=await api.insights(e.target.value);if(document.body!==mountBody)return;const values=document.querySelectorAll('.stat-value');
+   [data.charges,data.payments,data.balance].forEach((v,i)=>values[i].textContent=money(v));
+   document.querySelector('.stat-note').textContent=data.count+' fictional annual reservations';
+   document.querySelectorAll('.stat-note')[1].textContent=(data.charges?100*data.payments/data.charges:0).toFixed(1)+'% of total charges received';
+   document.querySelector('.stat-label').textContent='Agreed venue value ('+e.target.value+')';
+   document.querySelector('.v-chart').previousElementSibling.querySelector('h2').textContent='Bookings by Month ('+e.target.value+')';
+   const peak=Math.max(...data.months);document.querySelector('.v-chart').previousElementSibling.querySelector('.badge').textContent=peak?'Peak month: '+new Date(2026,data.months.indexOf(peak),1).toLocaleDateString('en-US',{month:'long'})+' ('+money(peak)+')':'No reservations in this year';
+   document.querySelectorAll('.v-bar-col').forEach((bar,i)=>{bar.querySelector('.v-bar-val').textContent='$'+(data.months[i]/1000).toFixed(1)+'k';bar.querySelector('.v-bar').style.height=(peak?100*data.months[i]/peak:0)+'%';});
+   if(api.mode==='http'){
+    const groups=document.querySelectorAll('.bar-chart-container');
+    const renderMix=(group,entries)=>{const sample=mixSamples[[...groups].indexOf(group)];group.replaceChildren(...entries.map(([label,count])=>{const row=sample.cloneNode(true),share=data.count?Math.round(100*count/data.count):0;row.firstElementChild.textContent=label;row.querySelector('.bar-value').textContent=share+'% ('+count+')';row.querySelector('.bar-fill').style.width=share+'%';return row;}));};
+    renderMix(groups[0],Object.entries(data.types));
+    const days=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];renderMix(groups[1],Object.entries(data.weekdays).sort((a,b)=>b[1]-a[1]).map(([day,count])=>[days[day],count]));
+    const takeaway=document.querySelector('.alert-info > div');if(takeaway)takeaway.textContent='Key Venue Takeaway: '+(data.count?'Most reservations: '+days[Object.entries(data.weekdays).sort((a,b)=>b[1]-a[1])[0]?.[0]]+'.':'No reservations in this year.');
+    return;
+   }
+   const mix=[data.types.Wedding||0,data.types.Birthday||0,data.types.Business||0,data.types.Other||0,data.weekdays[6]||0,data.weekdays[5]||0,data.weekdays[0]||0];
+   document.querySelectorAll('.bar-row').forEach((row,i)=>{const share=data.count?Math.round(100*mix[i]/data.count):0;row.querySelector('.bar-value').textContent=share+'% ('+mix[i]+')';row.querySelector('.bar-fill').style.width=share+'%';});
+  };
+  const select=document.querySelector('select');select.addEventListener('change',applyInsights);
+  if(api.mode==='http'&&(document.querySelector('.stat-value').textContent.trim()!==money(initialData.charges)||Object.entries(initialData.types).some(([type,count])=>![...document.querySelectorAll('.bar-chart-container:first-of-type .bar-row,.bar-row')].some(row=>row.firstElementChild.textContent===type&&row.querySelector('.bar-value').textContent.includes('('+count+')')))))await applyInsights({target:select});
+ }
+
+}
+async function mountBookings(api){
+ const mountBody=document.body;let updateSequence=0;
+ let edge;if(api.mode==='http')edge=readStates({states:await api.presentation('states')},()=>{$('bookingSearchInput').value='';document.querySelector('[data-filter="all"]').click();update();});
+ const all=await api.list();const canonical=all.length===12&&all.every(r=>api.original(r.id));const body=$('bookingsTableBody');const sample=body.querySelector('.ledger-row').cloneNode(true);
+ function makeRow(r){
+  const row=sample.cloneNode(true);row.dataset.id=r.id;row.dataset.contract=r.contract;row.dataset.guest=r.client;row.dataset.status=(r.date>=api.today?'upcoming':'past')+(r.balance?' due':'');
+  row.querySelectorAll('a[href]').forEach(a=>a.href=a.getAttribute('href').replace('/sophia','/'+encodeURIComponent(r.id)));row.querySelector('.guest-info h4 a').textContent=r.client;row.querySelector('.guest-info p').textContent=r.type+' · '+(r.contract||'—')+' · '+(r.phone||'—');
+  row.querySelector('.date-block-month').textContent=new Date(r.date+'T12:00:00').toLocaleDateString('en-US',{month:'short'});row.querySelector('.date-block-day').textContent=Number(r.date.slice(-2));
+  const cells=row.querySelectorAll('.financial-cell');cells[0].textContent=r.total==null?'Not agreed':money(r.total);cells[1].textContent=money(r.paid);cells[2].textContent=r.flags?.needsPrice?'—':money(r.balance);
+  row.querySelector('.row-dropdown')?.remove();const action=row.querySelector('.row-actions-cell a');action.textContent=r.flags?.needsPrice||r.cancelled?'Review':'Pay '+money(r.balance);if(r.flags?.needsPrice||r.cancelled)action.href='#/booking/'+encodeURIComponent(r.id);return row;
+ }
+ for(const r of all.filter(r=>!api.original(r.id)))body.append(makeRow(r));
+ const originalRows=[...document.querySelectorAll('#bookingsTableBody .ledger-row')],originalNodes=[...body.childNodes];
+ const dividerSample=[...body.children].find(row=>!row.classList.contains('ledger-row'))?.cloneNode(true);
+ const outerHeader=document.querySelector('.month-group-header');
+ for(const row of originalRows){const r=all.find(r=>row.dataset.id?r.id===row.dataset.id:r.contract===row.dataset.contract);if(!r){if(api.mode==='http')row.remove();continue;}row.dataset.id=r.id;if(r.cancelled)row.dataset.status='cancelled';
+  const old=api.original(r.id);if(old&&r.revision!==old.revision){const cells=row.querySelectorAll('.financial-cell');cells[0].textContent=money(r.total);cells[1].textContent=money(r.paid);cells[2].textContent=r.cancelled?(r.financialTotal==null?'Cancelled · charge not set':'Cancellation balance '+money(balance(r))):money(balance(r));if(r.cancelled){row.style.opacity='0.85';const link=row.querySelector('.row-actions-cell a');if(link){link.href='#/booking/'+r.id;link.textContent='Review';}}else{const pay=row.querySelector('.row-actions-cell a[href$="/pay"]');if(pay)pay.textContent='Pay '+money(balance(r));}}
+ }
+ const counts=await api.counts();if(api.mode==='http')document.querySelector('.page-description').textContent=document.querySelector('.page-description').textContent.replace(/\d+ records displayed/,all.length+' records displayed');document.querySelectorAll('.filter-chip').forEach(chip=>chip.textContent=chip.textContent.replace(/\(\d+\)/,'('+counts[chip.dataset.filter]+')'));
+ // The frozen default order/grouping is retained. Explicit sorts and searches use adapter data.
+ async function update(){
+  const ticket=++updateSequence;
+  const sort=$('sortSelect').value,query=$('bookingSearchInput').value,filter=document.querySelector('.filter-chip.active')?.dataset.filter||'all';
+  const rows=await api.list({q:query,filter,sort:sort.startsWith('guest')?'guest':sort.startsWith('balance')?'balance':'date'});if(ticket!==updateSequence||document.body!==mountBody)return;if(sort==='date-desc')rows.reverse();
+  for(const r of rows)if(!originalRows.some(row=>row.dataset.id===r.id))originalRows.push(makeRow(r));
+  edge?.clear('error');edge?.clear('empty');if(!rows.length)edge?.show('empty');
+  const ids=new Set(rows.map(r=>r.id));originalRows.forEach(row=>row.style.display=ids.has(row.dataset.id)?'':'none');
+  if(sort!=='date-asc'||query||api.mode==='http'&&!canonical){
+   body.replaceChildren();let lastMonth=null;outerHeader.style.display='none';
+   rows.forEach(r=>{const row=originalRows.find(el=>el.dataset.id===r.id);if(!row)return;
+    const month=r.date.slice(0,7);if(sort.startsWith('date')&&month!==lastMonth&&dividerSample){const divider=dividerSample.cloneNode(true);divider.firstElementChild.textContent=new Date(r.date+'T12:00:00').toLocaleDateString('en-US',{month:'long',year:'numeric'});body.append(divider);lastMonth=month;}body.append(row);
+   });
+  }else{body.replaceChildren(...originalNodes);outerHeader.style.display='';}
+
+ }
+ $('sortSelect').addEventListener('change',update);$('bookingSearchInput').addEventListener('input',()=>update().catch(()=>edge?.show('error')));document.querySelectorAll('.filter-chip').forEach(chip=>chip.addEventListener('click',update));
+ if(api.mode==='http'&&!canonical)await update();
+}
+async function mountCalendar(api,go){
+ const mountBody=document.body;
+ const initialRows=await api.calendar();const unchanged=initialRows.length===2&&initialRows.some(r=>r.id==='sophia'&&r.date==='2026-11-21')&&initialRows.some(r=>r.id==='amara'&&r.date==='2026-11-28');
+ let year=Number(api.today.slice(0,4)),month=Number(api.today.slice(5,7));const grid=document.querySelector('.calendar-grid')||document.querySelector('.cal-day-cell').parentElement;
+ const defaultGrid=grid.innerHTML;const defaultCard=$('dayScheduleContent').innerHTML;
+ async function select(day){
+  const date=`${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;let found=(await api.calendar(year,month)).find(r=>r.date===date);if(found&&api.mode==='http')found=await api.detail(found.id);if(document.body!==mountBody)return;
+  $('selectedDateTitle').textContent=new Date(date+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'short',day:'2-digit',year:'numeric'});
+  $('selectedDateSubtitle').textContent=found?(balance(found)===0?'1 reservation booked · Paid in full':'1 reservation booked · Entire facility reserved'):'Date open &middot; Ready for reservations';$('selectedDateBadge').textContent=found?'Booked':'Available';$('selectedDateBadge').className=found&&balance(found)>0?'badge badge-due':'badge badge-paid';
+  if(found){
+   $('dayScheduleContent').innerHTML=defaultCard;
+   const original=api.original('sophia');replaceMoney($('dayScheduleContent'),[[original.total,found.total],[original.paid,found.paid],[balance(original),balance(found)]]);
+   const heading=$('dayScheduleContent').querySelector('h4');if(heading)heading.textContent=found.client;
+   const subtitle=heading?.nextElementSibling;if(subtitle)subtitle.textContent=(found.eventLabel||found.type)+' · Contract #'+found.contract;
+   const badge=$('dayScheduleContent').querySelector('.badge');if(badge&&balance(found)===0){badge.textContent='Paid in Full';badge.className='badge badge-paid';}
+   const metadata=heading?.parentElement.children[2];if(metadata){metadata.querySelector('strong').textContent=rentalText(found.rentalWindow);metadata.lastChild.textContent=found.guestCount!=null?' · '+found.guestCount+' Guests':' · —';}
+   if(balance(found)===0){const summary=$('dayScheduleContent').querySelector('span[style*="warning-text"]');if(summary){summary.textContent='Balance: '+money(0);summary.style.color='var(--success-text)';}const action=$('dayScheduleContent').querySelector('a.btn-primary');if(action){action.className='btn btn-quiet btn-sm';action.href='#/booking/'+found.id;action.textContent='Contract PDF';}}
+
+   $('dayScheduleContent').querySelectorAll('a').forEach(a=>a.href=a.getAttribute('href').replace('/sophia','/'+found.id));
+  }else{
+   $('dayScheduleContent').innerHTML=availableDay('#/new?date='+date);
+  }
+ }
+ async function renderMonth(){
+  const date=new Date(year,month-1,1);$('calHeaderTitle').textContent=date.toLocaleDateString('en-US',{month:'long',year:'numeric'});
+  $('btnPrevMonth').textContent='← '+new Date(year,month-2,1).toLocaleDateString('en-US',{month:'long'});$('btnNextMonth').textContent=new Date(year,month,1).toLocaleDateString('en-US',{month:'long'})+' →';
+  if(year===2026&&month===11&&unchanged){grid.innerHTML=defaultGrid;return;}
+  const cells=[...grid.querySelectorAll('.cal-day-cell')];cells.forEach(c=>c.remove());const offset=date.getDay();
+  for(let i=0;i<offset;i++){const cell=document.createElement('div');cell.className='cal-day-cell';cell.setAttribute('aria-hidden','true');grid.append(cell);}
+  const bookings=await api.calendar(year,month);for(let day=1;day<=new Date(year,month,0).getDate();day++){
+   const cell=document.createElement('div');cell.className='cal-day-cell';cell.dataset.day=day;const n=document.createElement('span');n.className='cal-day-num';n.textContent=day;cell.append(n);
+   if(bookings.some(r=>Number(r.date.slice(-2))===day)){const dot=document.createElement('span');dot.className='cal-dot';cell.append(dot);}grid.append(cell);
+  }
+ }
+ document.body.addEventListener('click',async e=>{const cell=e.target.closest('[data-day]');if(cell?.tagName==='BUTTON'){const next=(await api.list()).find(r=>r.date>=api.today&&r.type!=='Blackout'&&!r.cancelled);if(next){year=Number(next.date.slice(0,4));month=Number(next.date.slice(5,7));await renderMonth();await select(Number(next.date.slice(-2)));}}else if(cell)await select(Number(cell.dataset.day));});
+ if(api.mode==='http'&&!unchanged){await renderMonth();await select(Number(api.today.slice(-2)));}
+ $('btnPrevMonth').addEventListener('click',async()=>{if(--month<1){month=12;year--;}await renderMonth();});$('btnNextMonth').addEventListener('click',async()=>{if(++month>12){month=1;year++;}await renderMonth();});$('btnTodayMonth').addEventListener('click',async()=>{year=2026;month=11;await renderMonth();await select(15);});
+}
+
+async function mountOverview(api){
+ if(api.mode==='http')return mountHttpOverview(api);
+ const data=await api.summary(),values=document.querySelectorAll('.stat-value');
+ values[0].textContent='$'+data.balance.toLocaleString('en-US');values[1].textContent='$'+data.novemberPayments.toLocaleString('en-US');values[2].textContent=data.novemberEvents+' events';
+ const settled=(await api.detail('elena')).settled;if(settled){const button=document.querySelector('[data-action="overview-0"]');button.textContent='Settled ✓';button.disabled=true;button.style.opacity='0.6';}
+ const old=api.original('sophia'),r=await api.detail('sophia');if(r.revision!==old.revision)document.querySelectorAll('.event-card,.triage-item').forEach(el=>{if(el.textContent.includes('Sophia'))replaceMoney(el,[[old.total,r.total],[old.paid,r.paid],[balance(old),balance(r)]]);});
+}
+async function mountPayments(api){
+ const register=await api.payments();
+ if(api.mode==='http'){
+  const body=$('paymentsTableBody'),templates=[...body.children].map(n=>n.cloneNode(true));
+  const rows=register.map(t=>{
+   const sample=templates.find(n=>n.dataset.type===t.kind&&n.dataset.method===t.method&&Number(n.children[4].textContent.replace(/[^0-9.-]/g,''))===t.amount);
+   const row=(sample||templates[0]).cloneNode(true),cells=row.children;row.dataset.type=t.kind;row.dataset.method=t.method;
+   cells[0].querySelector('strong').textContent=new Date(t.date+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'2-digit',year:'numeric'});
+   const guest=cells[1].firstElementChild;guest.textContent=t.displayClient||t.client;if(guest.tagName==='A')guest.href='#/booking/'+encodeURIComponent(t.bookingId);
+   cells[1].querySelector('div').textContent=t.eventType+' · '+(t.contract||'—');
+   if(!sample)cells[2].querySelector('span').textContent=t.kind==='deposit'?'Security Deposit':t.kind==='refund'?'Event Refund':'Event Payment';
+   cells[3].firstElementChild.textContent=t.method+(t.note&&t.method==='Check'?' ('+t.note+')':'');
+   if(!sample)cells[4].textContent=(t.amount<0?'-':'')+money(Math.abs(t.amount));
+   cells[5].firstElementChild.textContent=t.reference||t.id;return row;
+  });body.replaceChildren(...rows);
+ }
+ const added=register.filter(t=>t.id.startsWith('local-'));const body=$('paymentsTableBody'),sample=body.firstElementChild?.cloneNode(true);
+ for(const t of added.reverse()){
+  const row=sample.cloneNode(true),cells=row.children;row.dataset.type=t.kind;row.dataset.method=t.method;
+  cells[0].querySelector('strong').textContent=new Date(t.date+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'2-digit',year:'numeric'});
+  cells[1].querySelector('a').textContent=t.client;cells[1].querySelector('a').href='#/booking/'+t.bookingId;cells[1].querySelector('div').textContent=t.contract;cells[2].querySelector('span').textContent=t.kind==='deposit'?'Security Deposit':'Event Payment';cells[3].textContent=t.method;cells[4].textContent=money(t.amount);cells[5].textContent=t.id;body.prepend(row);
+ }
+ if(api.mode==='http'){const notes=document.querySelectorAll('.stat-note'),paidCount=register.filter(t=>t.kind==='payment').length,refundCount=register.filter(t=>t.kind==='refund').length,held=(await api.list()).filter(r=>r.flags?.depositHeld).length;notes[0].textContent=paidCount+' event receipts toward charges less '+refundCount+' '+(refundCount===1?'refund':'refunds');notes[1].textContent=held+' refundable damage '+(held===1?'deposit':'deposits')+'; prior sums held';notes[2].textContent=refundCount+' event '+(refundCount===1?'refund':'refunds')+'; deposit return excluded';}
+ const values=document.querySelectorAll('.stat-value');values[0].textContent=money(register.filter(t=>t.kind!=='deposit').reduce((n,t)=>n+t.amount,0));values[1].textContent=money((await api.summary()).depositHeld);values[2].textContent=money(-register.filter(t=>t.kind==='refund').reduce((n,t)=>n+t.amount,0));
+ document.querySelectorAll('.filter-chip').forEach(chip=>{const kind=chip.dataset.filter,count=kind==='all'?register.length:register.filter(t=>t.kind===kind).length;chip.textContent=chip.textContent.replace(/\(\d+\)/,'('+(kind==='all'?String(count).padStart(2,'0'):count)+')');});
+}
+
+async function mountHttpOverview(api){
+ const [data,attention,rows,register]=await Promise.all([api.summary(),api.attention(),api.list(),api.payments()]);
+ const notes=document.querySelectorAll('.stat-note'),month=api.today.slice(0,7);notes[1].textContent=register.filter(t=>t.kind==='payment'&&t.date.startsWith(month)).length+' recorded receipts this month';const monthRows=rows.filter(r=>r.flags?.open&&!r.cancelled&&r.type!=='Blackout'&&r.date.startsWith(month));notes[2].textContent=monthRows.filter(r=>r.date<api.today).length+' completed · '+monthRows.filter(r=>r.date>=api.today).length+' coming up';
+ const values=document.querySelectorAll('.stat-value');values[0].textContent='$'+data.balance.toLocaleString('en-US');values[1].textContent='$'+data.novemberPayments.toLocaleString('en-US');values[2].textContent=data.novemberEvents+' events';
+ const list=document.querySelector('.triage-list'),templates=[...list.children].map(n=>n.cloneNode(true));
+ const order=['overdue','price','past','deposit','reconcile'],expected={overdue:'sophia',price:'devon',past:'elena',deposit:'sophia',reconcile:'elena'};
+ const nodes=[];for(const kind of order)for(const item of attention.filter(a=>a.kind===kind)){
+  const row=templates[order.indexOf(kind)].cloneNode(true),r=item.record,old=api.original(expected[kind]);
+  if(item.id!==expected[kind]){const heading=row.querySelector('h5');heading.textContent=heading.textContent.split(' · ')[0]+' · '+r.client;row.querySelector('p').textContent=r.date+' · '+r.type+' · '+(r.contract||'—');}
+  if(old)replaceMoney(row,[[old.total,r.total],[old.paid,r.paid],[balance(old),r.balance],[old.depositHeld,r.depositHeld]]);
+  const target=row.querySelector('a');if(target)target.href=item.target;
+  nodes.push(row);
+ }
+ list.replaceChildren(...nodes);document.querySelector('.triage-card .badge').textContent=attention.length+' actionable';document.querySelector('.triage-card .card-subtitle').textContent=document.querySelector('.triage-card .card-subtitle').textContent.replace(/\d+ items/,attention.length+' items');
+ document.querySelector('.stat-note').textContent='Across '+rows.filter(r=>r.balance>0&&!r.cancelled).length+' priced open balances';
+ const group=document.querySelector('.events-trio'),samples=[...group.children].map(n=>n.cloneNode(true));
+ const next=rows.filter(r=>r.date>=api.today&&!r.cancelled&&r.type!=='Blackout').slice(0,3);
+ group.replaceChildren(...next.map((r,i)=>{const node=(samples[i]||samples[0]).cloneNode(true),old=api.original(['sophia','amara','mateo'][i]);
+  if(old)replaceMoney(node,[[old.total,r.total],[old.paid,r.paid],[balance(old),r.balance]]);
+  if(r.id!==old?.id||r.client!==old.client||r.date!==old.date){node.querySelector('.badge').textContent=r.balance>0?'Balance due':'Paid in full';node.querySelector('h3').textContent=r.client;node.querySelector('.date-pill').textContent=new Date(r.date+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'2-digit',weekday:'short'});node.querySelector('h3 + p').textContent=r.type+' · '+(r.contract||'—');}
+  node.querySelectorAll('a').forEach(a=>{const pay=a.getAttribute('href').endsWith('/pay');a.href='#/booking/'+encodeURIComponent(r.id)+(pay?'/pay':'');});return node;}));
+}
