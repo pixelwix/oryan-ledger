@@ -367,6 +367,16 @@ const markup = `
             <td>
               <div class="row-actions-cell">
                 <a href="#/booking/fundraiser" class="btn btn-quiet btn-sm">Details</a>
+                <div class="row-dropdown">
+                  <button type="button" class="btn btn-quiet btn-sm" data-toggle-menu="menu-fundraiser" aria-expanded="false" aria-label="More actions">•••</button>
+                  <div class="dropdown-menu" id="menu-fundraiser">
+                    <a href="#/booking/fundraiser" class="dropdown-item">View details</a>
+                    <a href="#/booking/fundraiser/edit" class="dropdown-item">Edit price breakdown</a>
+                    <a href="#/booking/fundraiser" class="dropdown-item">Contract copy (PDF)</a>
+                    <div class="dropdown-divider"></div>
+                    <button type="button" class="dropdown-item" style="color: var(--danger-text);">Cancel booking</button>
+                  </div>
+                </div>
               </div>
             </td>
           </tr>
@@ -394,6 +404,16 @@ const markup = `
             <td>
               <div class="row-actions-cell">
                 <a href="#/booking/jordan/pay" class="btn btn-primary btn-sm">{{v62}}</a>
+                <div class="row-dropdown">
+                  <button type="button" class="btn btn-quiet btn-sm" data-toggle-menu="menu-jordan" aria-expanded="false" aria-label="More actions">•••</button>
+                  <div class="dropdown-menu" id="menu-jordan">
+                    <a href="#/booking/jordan" class="dropdown-item">View details</a>
+                    <a href="#/booking/jordan/edit" class="dropdown-item">Edit price breakdown</a>
+                    <a href="#/booking/jordan" class="dropdown-item">Contract copy (PDF)</a>
+                    <div class="dropdown-divider"></div>
+                    <button type="button" class="dropdown-item" style="color: var(--danger-text);">Cancel booking</button>
+                  </div>
+                </div>
               </div>
             </td>
           </tr>
@@ -421,6 +441,15 @@ const markup = `
               <div class="row-actions-cell">
                 <a href="#/booking/arianoah" class="btn btn-quiet btn-sm">Review</a>
                 <button type="button" class="btn btn-quiet btn-sm">Restore</button>
+                <div class="row-dropdown">
+                  <button type="button" class="btn btn-quiet btn-sm" data-toggle-menu="menu-arianoah" aria-expanded="false" aria-label="More actions">•••</button>
+                  <div class="dropdown-menu" id="menu-arianoah">
+                    <a href="#/booking/arianoah" class="dropdown-item">View details</a>
+                    <a href="#/booking/arianoah/edit" class="dropdown-item">Edit price breakdown</a>
+                    <div class="dropdown-divider"></div>
+                    <button type="button" class="dropdown-item" style="color: var(--danger-text);">Restore</button>
+                  </div>
+                </div>
               </div>
             </td>
           </tr>
@@ -454,6 +483,16 @@ const markup = `
             <td>
               <div class="row-actions-cell">
                 <a href="#/booking/julian" class="btn btn-quiet btn-sm">Details</a>
+                <div class="row-dropdown">
+                  <button type="button" class="btn btn-quiet btn-sm" data-toggle-menu="menu-julian" aria-expanded="false" aria-label="More actions">•••</button>
+                  <div class="dropdown-menu" id="menu-julian">
+                    <a href="#/booking/julian" class="dropdown-item">View details</a>
+                    <a href="#/booking/julian/edit" class="dropdown-item">Edit price breakdown</a>
+                    <a href="#/booking/julian" class="dropdown-item">Contract copy (PDF)</a>
+                    <div class="dropdown-divider"></div>
+                    <button type="button" class="dropdown-item" style="color: var(--danger-text);">Cancel booking</button>
+                  </div>
+                </div>
               </div>
             </td>
           </tr>
@@ -480,6 +519,16 @@ const markup = `
             <td>
               <div class="row-actions-cell">
                 <a href="#/booking/elena" class="btn btn-quiet btn-sm">Reconcile</a>
+                <div class="row-dropdown">
+                  <button type="button" class="btn btn-quiet btn-sm" data-toggle-menu="menu-elena" aria-expanded="false" aria-label="More actions">•••</button>
+                  <div class="dropdown-menu" id="menu-elena">
+                    <a href="#/booking/elena" class="dropdown-item">View details</a>
+                    <a href="#/booking/elena/edit" class="dropdown-item">Edit price breakdown</a>
+                    <a href="#/booking/elena" class="dropdown-item">Contract copy (PDF)</a>
+                    <div class="dropdown-divider"></div>
+                    <button type="button" class="dropdown-item" style="color: var(--danger-text);">Cancel booking</button>
+                  </div>
+                </div>
               </div>
             </td>
           </tr>

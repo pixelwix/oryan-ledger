@@ -1,0 +1,6 @@
+{
+  "workerOrigin": "https://<worker-name>.<account-subdomain>.workers.dev",
+  "googleClientId": "<public Google OAuth web client ID>",
+  "documentsEnabled": true,
+  "documentsWarmMinutes": 4
+}

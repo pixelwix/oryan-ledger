@@ -20,7 +20,7 @@ export function createLedgerApi(presentation,initial=seed){
   if(sort==='date')rows.sort((a,b)=>a.date.localeCompare(b.date));
   if(sort==='guest')rows.sort((a,b)=>a.client.localeCompare(b.client));
   if(sort==='balance')rows.sort((a,b)=>(balance(b)||0)-(balance(a)||0));
-  return clone(rows.map(r=>({...r,balance:balance(r)})));
+  return clone(rows.map(r=>({...r,balance:balance(r),hasReceipts:documentApi.hasReceipts(r.id)})));
  }
  function payments({q='',kind='all',method='all'}={}){
   return state.records.flatMap(r=>[
@@ -36,7 +36,7 @@ export function createLedgerApi(presentation,initial=seed){
  function calendar(year=2026,month=11){const prefix=`${year}-${String(month).padStart(2,'0')}`;return list().filter(r=>r.date.startsWith(prefix)&&!r.cancelled).map(r=>({...r,...displayMetadata[r.id]}));}
  function commands(type,id,values={}){
   const r=id?detail(id):null;
-  const meta={id:'local-'+(++sequence),actor:'Owner',at:initial.TODAY+'T12:00:00Z'};
+  const meta={id:'local-'+(++sequence),actor:'Owner',at:new Date().toISOString()};
   let command={type,bookingId:id,expectedRevision:r?.revision,values:type==='markSettled'?{cutoff:initial.TODAY,...values}:values};
   if(type==='edit'){
    const keys=['client','phone','contract','type','date','due','covers','projector','audio','bar','security','notes'];
@@ -54,7 +54,8 @@ export function createLedgerApi(presentation,initial=seed){
  }
  function intakeExtras(v){return Object.entries(intakeRates).filter(([k])=>v[k]).map(([key,rate])=>({key,label:Ledger.extraLabels?.[key]||key,amount:rate}));}
  function presentationFor(screen){return clone(presentation[screen]);}
- return {...fixtureDocuments(detail,initial.TODAY),list,search:q=>list({q}),detail,summary,attention,payments,insights,calendar,commands,presentation:presentationFor,original:id=>{const r=original.find(r=>r.id===id);return r?clone(r):null;},today:initial.TODAY,edge:clone(initial.edgeScenarios),rates:clone(Ledger.extraRates),priceLines:Ledger.priceLines,
+ const documentApi=fixtureDocuments(detail,initial.TODAY,commands);
+ return {...documentApi,list,search:q=>list({q}),detail,summary,attention,payments,insights,calendar,commands,presentation:presentationFor,original:id=>{const r=original.find(r=>r.id===id);return r?clone(r):null;},today:initial.TODAY,edge:clone(initial.edgeScenarios),rates:clone(Ledger.extraRates),priceLines:Ledger.priceLines,
   intakeRates,newExtraAmount:100,
   createBooking(values,metadata){
    const previous=state;const previousSequence=sequence;

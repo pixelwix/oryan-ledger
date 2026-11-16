@@ -1,3 +1,5 @@
+import {startDocumentsWarm,DOCUMENTS_WARM_MINUTES} from './documents-lifecycle.mjs';
+import {positionRowMenu,rowMenuKeyboard} from './row-menu.mjs';
 import {createHttpLedgerApi} from './http-adapter.mjs';
 import {readStates} from './read-states.mjs';
 import {createLedgerApi,money,balance} from './adapter.mjs';
@@ -12,10 +14,10 @@ const params=new URLSearchParams(location.search);
 const trustedOrigin=Boolean(appConfig?.workerOrigin&&appConfig?.googleClientId);
 const workerOrigin=trustedOrigin?appConfig.workerOrigin:params.get('worker');
 const clientId=trustedOrigin?appConfig.googleClientId:(workerOrigin?params.get('client'):'');
-let auth=null,signin=null,me=null,retryWaiter=null;
+let auth=null,signin=null,me=null,retryWaiter=null,documentsWarm=null;
 if(clientId){
  const [{createAuth},{mountSignIn}]=await Promise.all([import('./auth.mjs'),import('./signin-ui.mjs')]);
- auth=createAuth({clientId,onState:(state,info)=>signin?.render(state,info)});
+ auth=createAuth({clientId,onState:(state,info)=>{signin?.render(state,info);documentsWarm?.sync();}});
  signin=mountSignIn({auth,onRetry:()=>{if(retryWaiter){const resolve=retryWaiter;retryWaiter=null;resolve();}else auth.start().catch(()=>{});}});
 }
 export const ledgerApi=workerOrigin?createHttpLedgerApi(presentation,{origin:workerOrigin,auth,trustedOrigin}):createLedgerApi(presentation);
@@ -67,13 +69,14 @@ document.addEventListener('click',e=>{
   }
   if(a.classList.contains('modal-close-btn')||a.closest('.modal-backdrop')&&a.textContent.trim()==='Cancel'){e.preventDefault();closeSheet();return;}
  }
- const trigger=e.target.closest('[data-toggle-menu]');if(trigger){const menu=document.getElementById(trigger.dataset.toggleMenu);if(menu){document.querySelectorAll('.dropdown-menu[open],.more-dropdown-menu[open]').forEach(other=>{if(other!==menu){other.removeAttribute('open');document.querySelectorAll('[data-toggle-menu]').forEach(button=>{if(button.dataset.toggleMenu===other.id)button.setAttribute('aria-expanded','false');});}});menu.toggleAttribute('open');trigger.setAttribute('aria-expanded',String(menu.hasAttribute('open')));}return;}
+ const trigger=e.target.closest('[data-toggle-menu]');if(trigger){const menu=document.getElementById(trigger.dataset.toggleMenu);if(menu){document.querySelectorAll('.dropdown-menu[open],.more-dropdown-menu[open]').forEach(other=>{if(other!==menu){other.removeAttribute('open');document.querySelectorAll('[data-toggle-menu]').forEach(button=>{if(button.dataset.toggleMenu===other.id)button.setAttribute('aria-expanded','false');});}});menu.toggleAttribute('open');trigger.setAttribute('aria-expanded',String(menu.hasAttribute('open')));if(menu.hasAttribute('open')&&menu.classList.contains('dropdown-menu'))positionRowMenu(menu,trigger);}return;}
  if(!e.target.closest('.dropdown-menu,.more-dropdown-menu')){document.querySelectorAll('.dropdown-menu[open],.more-dropdown-menu[open]').forEach(m=>m.removeAttribute('open'));document.querySelectorAll('[data-toggle-menu][aria-expanded="true"]').forEach(button=>button.setAttribute('aria-expanded','false'));}
  const opener=e.target.closest('[data-open-modal]');if(opener){const modal=document.getElementById(opener.dataset.openModal);if(modal){modal.hidden=false;modal.style.display='flex';modal.querySelector('button,input,a')?.focus();}}
  const closer=e.target.closest('[data-close-modal]');if(closer){const modal=closer.closest('.modal-backdrop');if(modal){modal.hidden=true;modal.style.display='none';}}
  if(e.target.classList.contains('modal-backdrop'))closeSheet();
 });
 document.addEventListener('keydown',e=>{
+ rowMenuKeyboard(e);
  if(e.key==='Escape'){
   if(['edit-booking','record-payment'].includes(activeRoute?.screen)){e.preventDefault();closeSheet();}
   document.querySelectorAll('.dropdown-menu[open],.more-dropdown-menu[open]').forEach(m=>m.removeAttribute('open'));
@@ -96,4 +99,5 @@ async function gate(){
 }
 async function bootAuth(){await auth.start();await gate();}
 if(auth)await bootAuth();
+documentsWarm=startDocumentsWarm(ledgerApi,{enabled:appConfig?.documentsEnabled!==false,minutes:appConfig?.documentsWarmMinutes??DOCUMENTS_WARM_MINUTES,allowed:()=>!auth||auth.state==='signed-in'});
 window.addEventListener('hashchange',render);await render();

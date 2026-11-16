@@ -1,5 +1,7 @@
+import {warmDocuments} from './documents-lifecycle.mjs';
+import {contractAllowed,refreshContractCard} from './document-state.mjs';
 import {bookingRowBuilder,dueDate,rowVariant} from './booking-row.mjs';
-import {mountDocuments,contractSheet,downloadDocument,receiptRow} from './documents-ui.mjs';
+import {mountDocuments,contractSheet,downloadDocument,receiptRow,issueReceiptWithProgress} from './documents-ui.mjs';
 const rentalText=w=>!w?'—':typeof w==='string'?w:[w.start,w.end].map(t=>t==='00:00'?'Midnight':`${Number(t.slice(0,2))%12||12}:${t.slice(3)} ${Number(t.slice(0,2))<12?'AM':'PM'}`).join(' – ');
 import {commandSheet} from './command-sheet.mjs';
 import {readStates} from './read-states.mjs';
@@ -83,6 +85,7 @@ async function hydrateDetail(api,route){
    const warning=document.querySelector('.breakdown-table').parentElement.querySelector('.alert-warning');if(warning){if(variant==='overdue')warning.querySelector('strong').textContent='Final Balance Overdue since '+dueDate(r)+'.';else warning.remove();}
   }
  }
+ if(route.screen==='booking'){refreshContractCard(r);if(!contractAllowed(r)){document.querySelectorAll('[data-action="booking-0"]').forEach(a=>{const note=document.createElement('p');note.className='form-label-note';note.textContent=r.cancelled?'No contract PDF for a cancelled booking.':'No contract PDF for a blocked date.';a.replaceWith(note);});}}
  return r;
 }
 function linesFromForm(){return {hall:number('lineHall'),discount:number('lineDiscount'),discountNote:val('lineDiscountNote'),extras:[
@@ -90,6 +93,7 @@ function linesFromForm(){return {hall:number('lineHall'),discount:number('lineDi
  ...[...document.querySelectorAll('.custom-extra-row')].map(row=>({label:row.querySelector('.custom-label').value,amount:Number(row.querySelector('.custom-amount').value)}))
 ]};}
 export async function mountFlows({api,route,go,toast,closeSheet}){
+ if(route.screen==='record-payment')warmDocuments(api);
  const mountBody=document.body;
  const screen=route.screen;let r,saving=false;
  if(['booking','edit-booking','record-payment'].includes(screen))r=await hydrateDetail(api,route);
@@ -103,7 +107,7 @@ export async function mountFlows({api,route,go,toast,closeSheet}){
   saving=true;const submit=e.target.querySelector('[type=submit]');if(submit)submit.disabled=true;
   document.getElementById('read-error')?.remove();
   try{
-   if(screen==='record-payment'){await api.commands('payment',route.id,{amount:number('paymentAmount'),date:val('paymentDate'),method:val('paymentMethod'),note:val('paymentNote')});go('#/booking/'+route.id);api.documents(route.id).then(rows=>Promise.all(rows.filter(r=>r.kind!=='contract'&&r.status!=='saved').map(row=>api.issueReceipt(route.id,row.id)))).then(rows=>{if(rows.some(row=>row.status!=='saved'))toast('Payment saved. PDF saving pending. Retry from Saved copies.');if(document.body===mountBody)return;if(location.hash==='#/booking/'+route.id)mountDocuments(api,route.id,toast).catch(()=>{});}).catch(()=>toast('Payment saved. PDF saving pending. Retry from Saved copies.'));}
+   if(screen==='record-payment'){await api.commands('payment',route.id,{amount:number('paymentAmount'),date:val('paymentDate'),method:val('paymentMethod'),note:val('paymentNote')});go('#/booking/'+route.id);api.documents(route.id).then(rows=>Promise.all(rows.filter(r=>r.kind!=='contract'&&r.status!=='saved').map(row=>issueReceiptWithProgress(api,route.id,row.id,toast)))).then(rows=>{if(rows.some(row=>row.status!=='saved'))toast('Payment saved. Saving in the background. It will appear in Saved copies in about 10-30 seconds.');if(document.body===mountBody)return;if(location.hash==='#/booking/'+route.id)mountDocuments(api,route.id,toast).catch(()=>{});}).catch(()=>toast('Payment saved. Saving in the background. It will appear in Saved copies in about 10-30 seconds.'));}
    if(screen==='edit-booking'){await api.commands('edit',route.id,{lines:linesFromForm(),reason:val('changeReason')});go('#/booking/'+route.id);}
    if(screen==='new-booking'){
     const extras=standard.filter(n=>$('extra'+n).checked).map(n=>({key:n.toLowerCase(),label:n,amount:api.intakeRates[n.toLowerCase()]}));
@@ -117,14 +121,14 @@ export async function mountFlows({api,route,go,toast,closeSheet}){
  document.body.addEventListener('click',async e=>{
   const contract=e.target.closest('.dropdown-item');if(contract?.textContent.trim()==='Contract copy (PDF)'){e.preventDefault();try{await contractSheet(api,contract.closest('.ledger-row').dataset.id,toast);}catch(error){toast(error.message);}return;}
   const reconcile=e.target.closest('a[href^="#/booking/"]');if(reconcile?.textContent.trim()==='Reconcile'){e.preventDefault();e.stopPropagation();const id=decodeURIComponent(reconcile.hash.slice('#/booking/'.length).split(/[/?]/)[0]);await commandSheet({api,id,kind:'reconcile',toast,go});return;}
-  const receipt=e.target.closest('button');if(receipt?.textContent.trim()==='View receipt PDF'){try{const rows=await api.documents(route.id),row=await receiptRow(rows,receipt.dataset.transactionId);if(!row)throw Error('No receipt PDF is available after the document cutoff.');if(row.status==='saved')await downloadDocument(api,row.id,toast);else{await api.issueReceipt(route.id,row.id);await mountDocuments(api,route.id,toast);}}catch(e){toast(e.message);}return;}
+  const receipt=e.target.closest('button');if(receipt?.textContent.trim()==='View receipt PDF'){try{const rows=await api.documents(route.id),row=await receiptRow(rows,receipt.dataset.transactionId);if(!row)throw Error('No receipt PDF is available after the document cutoff.');if(row.status==='saved')await downloadDocument(api,row.id,toast);else{await issueReceiptWithProgress(api,route.id,row.id,toast);await mountDocuments(api,route.id,toast);}}catch(e){toast(e.message);}return;}
   const action=e.target.closest('[data-action]');
   if(action&&action.tagName!=='FORM'){
    try{
     const key=action.dataset.action;
     if(['booking-2','booking-3','booking-4','booking-5','booking-8','booking-9'].includes(key)){await commandSheet({api,id:route.id,kind:{'booking-2':'deposit','booking-3':'refund','booking-4':'reminder','booking-5':'contractStatus','booking-8':'depositRefund','booking-9':'deduct'}[key],toast,go});return;}
     if(key==='booking-0'){await contractSheet(api,route.id,toast);return;}
-    if(key==='booking-1'){const rows=await api.documents(route.id),row=rows.find(r=>r.kind!=='contract');if(!row)throw Error('No receipt PDF is available after the document cutoff.');if(row.status==='saved')await downloadDocument(api,row.id,toast);else{await api.issueReceipt(route.id,row.id);await mountDocuments(api,route.id,toast);}return;}
+    if(key==='booking-1'){const rows=await api.documents(route.id),row=rows.find(r=>r.kind!=='contract');if(!row)throw Error('No receipt PDF is available after the document cutoff.');if(row.status==='saved')await downloadDocument(api,row.id,toast);else{await issueReceiptWithProgress(api,route.id,row.id,toast);await mountDocuments(api,route.id,toast);}return;}
     if(key==='booking-6'&&api.ics){const text=await api.ics(route.id),url=URL.createObjectURL(new Blob([text],{type:'text/calendar;charset=utf-8'})),link=document.createElement('a');link.href=url;link.download='booking.ics';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);return;}
     if(key==='overview-0'){await api.commands('markSettled',action.dataset.bookingId,{reason:'Owner marked the fictional past event settled.'});action.textContent='Settled ✓';action.disabled=true;action.style.opacity='0.6';return;}
     if(key==='booking-7'){const current=await api.detail(route.id);await api.commands(current.cancelled?'restore':'cancel',route.id,{reason:'Owner changed the fictional reservation status.'});go('#/bookings');return;}
@@ -132,7 +136,7 @@ export async function mountFlows({api,route,go,toast,closeSheet}){
    }catch(error){toast(error.message);}
   }
   const release=e.target.closest('.row-actions-cell button');if(release?.textContent.trim()==='Release hold'){await api.commands('release',release.closest('.ledger-row').dataset.id,{reason:'Owner released the fictional date hold.'});go('#/bookings');}
-  const restore=e.target.closest('.row-actions-cell button');if(restore?.textContent.trim()==='Restore'){await api.commands('restore',restore.closest('.ledger-row').dataset.id,{reason:'Owner restored the fictional booking.'});go('#/bookings');return;}
+  const restore=e.target.closest('.row-actions-cell button');if(['Restore','Restore booking'].includes(restore?.textContent.trim())){await api.commands('restore',restore.closest('.ledger-row').dataset.id,{reason:'Owner restored the fictional booking.'});go('#/bookings');return;}
   const cancel=e.target.closest('.dropdown-item');if(cancel?.tagName==='BUTTON'&&cancel.textContent.includes('Cancel')){
    const row=cancel.closest('.ledger-row');await api.commands('cancel',row.dataset.id,{reason:'Owner cancelled the fictional booking.'});go('#/bookings');
   }
@@ -176,7 +180,7 @@ export async function mountFlows({api,route,go,toast,closeSheet}){
 async function mountBookings(api){
  const mountBody=document.body;let updateSequence=0;
  let edge;if(api.mode==='http')edge=readStates({states:await api.presentation('states')},()=>{$('bookingSearchInput').value='';document.querySelector('[data-filter="all"]').click();update();});
- const all=await api.list();const canonical=all.length===12&&all.every(r=>r.date===api.original(r.id)?.date);const body=$('bookingsTableBody');const makeRow=bookingRowBuilder(body,all,api.today);
+ const all=await api.list();const canonical=all.length===12&&all.every(r=>r.date===api.original(r.id)?.date);const body=$('bookingsTableBody');const makeRow=bookingRowBuilder(body,all,api.today,api.original);
  const originalRows=[],originalNodes=[...body.childNodes];
  const dividerSample=[...body.children].find(row=>!row.classList.contains('ledger-row'))?.cloneNode(true);
  const outerHeader=document.querySelector('.month-group-header');
@@ -203,6 +207,7 @@ async function mountBookings(api){
   }else{body.replaceChildren(...originalNodes);outerHeader.style.display='';}
 
  }
+ mountBody.addEventListener('contract-saved',()=>{if(document.body===mountBody)update().catch(()=>edge?.show('error'));});
  $('sortSelect').addEventListener('change',update);$('bookingSearchInput').addEventListener('input',()=>update().catch(()=>edge?.show('error')));document.querySelectorAll('.filter-chip').forEach(chip=>chip.addEventListener('click',update));
  if(!canonical)await update();
 }
@@ -269,7 +274,7 @@ async function mountPayments(api,toast){
   });body.replaceChildren(...rows);
  }
  const body=$('paymentsTableBody');
- [...body.children].forEach((row,i)=>{const transaction=register[i],button=[...row.querySelectorAll('button')].find(b=>b.textContent.trim()==='PDF');if(!button||!transaction)return;button.onclick=async()=>{try{const rows=await api.documents(transaction.bookingId);let copy=await receiptRow(rows,transaction.id);if(!copy)throw Error('No receipt PDF is available after the document cutoff.');if(copy.status!=='saved')copy=await api.issueReceipt(transaction.bookingId,copy.id);if(copy.status==='saved')await downloadDocument(api,copy.id,toast);else toast('PDF saving pending. Retry from Saved copies.');}catch(error){toast(error.message);}};});
+ [...body.children].forEach((row,i)=>{const transaction=register[i],button=[...row.querySelectorAll('button')].find(b=>b.textContent.trim()==='PDF');if(!button||!transaction)return;button.onclick=async()=>{try{const rows=await api.documents(transaction.bookingId);let copy=await receiptRow(rows,transaction.id);if(!copy)throw Error('No receipt PDF is available after the document cutoff.');if(copy.status!=='saved')copy=await issueReceiptWithProgress(api,transaction.bookingId,copy.id,toast);if(copy.status==='saved')await downloadDocument(api,copy.id,toast);else toast('PDF saving pending. Retry from Saved copies.');}catch(error){toast(error.message);}};});
  if(api.mode==='http'){const notes=document.querySelectorAll('.stat-note'),paidCount=register.filter(t=>t.kind==='payment').length,refundCount=register.filter(t=>t.kind==='refund').length,held=(await api.list()).filter(r=>r.flags?.depositHeld).length;notes[0].textContent=paidCount+' event receipts toward charges less '+refundCount+' '+(refundCount===1?'refund':'refunds');notes[1].textContent=held+' refundable damage '+(held===1?'deposit':'deposits')+'; prior sums held';notes[2].textContent=refundCount+' event '+(refundCount===1?'refund':'refunds')+'; deposit return excluded';}
  const values=document.querySelectorAll('.stat-value');values[0].textContent=money(register.filter(t=>t.kind!=='deposit').reduce((n,t)=>n+t.amount,0));values[1].textContent=money((await api.summary()).depositHeld);values[2].textContent=money(-register.filter(t=>t.kind==='refund').reduce((n,t)=>n+t.amount,0));
  document.querySelectorAll('.filter-chip').forEach(chip=>{const kind=chip.dataset.filter,count=kind==='all'?register.length:register.filter(t=>t.kind===kind).length;chip.textContent=chip.textContent.replace(/\(\d+\)/,'('+(kind==='all'?String(count).padStart(2,'0'):count)+')');});
