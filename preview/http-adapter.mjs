@@ -34,10 +34,10 @@ export function createHttpLedgerApi(presentation,{origin,timeout=4000,retries=1,
   onState('error');throw Error(error?.name==='AbortError'?'Ledger request timed out.':error?.message||'Unable to load ledger.');
  }
  const normalize=r=>({...r,client:r.guest??r.client,total:r.originalPrice??(r.flags?.needsPrice?null:r.agreedPrice),financialTotal:r.agreedPrice,settled:r.status==='Settled'||!!r.settled,cancelled:r.status==='Cancelled'||!!r.cancelled});
- async function post(path,body){
+ async function post(path,body,callTimeout=timeout){
   for(let reauth=0;;reauth++){
   const headers={'Content-Type':'application/json',...await authHeaders()};
-  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),timeout);
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),callTimeout);
   try{const response=await fetcher(new URL(path,origin),{method:'POST',body:JSON.stringify(body),headers,credentials:'omit',cache:'no-store',signal:controller.signal});
    if(auth&&(response.status===401||response.status===403)){const e=await authFailure(response);if(response.status===401&&reauth<1)continue;throw e;}
    const data=await response.json();if(!response.ok){const e=Error(data.error||'Unable to save ledger ('+response.status+').');e.status=response.status;throw e;}return data;}
@@ -72,7 +72,7 @@ export function createHttpLedgerApi(presentation,{origin,timeout=4000,retries=1,
  }
  async function list({q='',filter='all',sort='date',from='',to=''}={}){
   let rows=(await get('/bookings',{q:q.trim()||undefined,from:from||undefined,to:to||undefined})).records.map(normalize);
-  rows=rows.filter(r=>filter==='all'||filter==='due'&&r.balance>0&&!r.cancelled||filter==='attention'&&(r.flags?.needsPrice||r.importedDifference||r.due<helpers.today&&r.balance>0||r.date<helpers.today&&r.type!=='Blackout'||r.flags?.depositHeld)&&!r.settled||filter==='upcoming'&&r.date>=helpers.today&&!r.cancelled||filter==='past'&&r.date<helpers.today||filter==='cancelled'&&r.cancelled||filter==='settled'&&r.settled);
+  rows=rows.filter(r=>filter==='all'||filter==='due'&&r.balance>0&&!r.cancelled||filter==='attention'&&(r.flags?.needsPrice||r.importedDifference||r.due&&r.due<helpers.today&&r.balance>0||r.date<helpers.today&&r.type!=='Blackout'||r.flags?.depositHeld)&&!r.settled||filter==='upcoming'&&r.date>=helpers.today&&!r.cancelled||filter==='past'&&r.date<helpers.today||filter==='cancelled'&&r.cancelled||filter==='settled'&&r.settled);
   return rows.sort(sort==='guest'?(a,b)=>a.client.localeCompare(b.client):sort==='balance'?(a,b)=>(b.balance||0)-(a.balance||0):(a,b)=>a.date.localeCompare(b.date));
  }
  async function payments(params={}){let out=[],offset=0;for(;;){const page=await get('/payments',{...params,offset,limit:500});out=out.concat(page.records);if(out.length>=page.summary.count)return out;offset+=500;if(offset>50000)throw Error('Narrow the payment search.');}}
@@ -83,6 +83,11 @@ export function createHttpLedgerApi(presentation,{origin,timeout=4000,retries=1,
   calendar:async(year,month)=>(await get('/calendar',{year,month})).records,
   calendarInfo:(year,month)=>get('/calendar',{year,month}),
   commands,createBooking,
+  documents:async bookingId=>(await request('/documents',{bookingId})).documents,
+  createContract:async(id,values,requestId)=>post('/documents/contract',{bookingId:id,expectedRevision:(await detail(id)).revision,values,requestId},65000),
+  issueReceipt:(bookingId,requestId)=>post('/documents/receipt',{bookingId,requestId},65000),
+  retryDocument:id=>post('/documents/'+encodeURIComponent(id)+'/retry',{},65000),
+  async downloadDocument(id){const response=await fetcher(new URL('/documents/'+encodeURIComponent(id)+'/download',origin),{headers:await authHeaders(),credentials:'omit',cache:'no-store'});if(auth&&(response.status===401||response.status===403))throw await authFailure(response);if(!response.ok||!response.headers.get('Content-Type')?.startsWith('application/pdf'))throw Error('Document download unavailable.');return {preview:response.headers.get('X-Document-Preview')==='true',blob:await response.blob(),filename:decodeURIComponent(response.headers.get('Content-Disposition')?.split("UTF-8''")[1]||'Document.pdf')};},
   async ics(id){const r=await this.detail(id);return bookingIcs(r);}
  };
 }

@@ -67,8 +67,8 @@ document.addEventListener('click',e=>{
   }
   if(a.classList.contains('modal-close-btn')||a.closest('.modal-backdrop')&&a.textContent.trim()==='Cancel'){e.preventDefault();closeSheet();return;}
  }
- const trigger=e.target.closest('[data-toggle-menu]');if(trigger){const menu=document.getElementById(trigger.dataset.toggleMenu);if(menu){menu.toggleAttribute('open');trigger.setAttribute('aria-expanded',String(menu.hasAttribute('open')));}return;}
- if(!e.target.closest('.dropdown-menu,.more-menu'))document.querySelectorAll('.dropdown-menu[open],.more-menu[open]').forEach(m=>m.removeAttribute('open'));
+ const trigger=e.target.closest('[data-toggle-menu]');if(trigger){const menu=document.getElementById(trigger.dataset.toggleMenu);if(menu){document.querySelectorAll('.dropdown-menu[open],.more-dropdown-menu[open]').forEach(other=>{if(other!==menu){other.removeAttribute('open');document.querySelectorAll('[data-toggle-menu]').forEach(button=>{if(button.dataset.toggleMenu===other.id)button.setAttribute('aria-expanded','false');});}});menu.toggleAttribute('open');trigger.setAttribute('aria-expanded',String(menu.hasAttribute('open')));}return;}
+ if(!e.target.closest('.dropdown-menu,.more-dropdown-menu')){document.querySelectorAll('.dropdown-menu[open],.more-dropdown-menu[open]').forEach(m=>m.removeAttribute('open'));document.querySelectorAll('[data-toggle-menu][aria-expanded="true"]').forEach(button=>button.setAttribute('aria-expanded','false'));}
  const opener=e.target.closest('[data-open-modal]');if(opener){const modal=document.getElementById(opener.dataset.openModal);if(modal){modal.hidden=false;modal.style.display='flex';modal.querySelector('button,input,a')?.focus();}}
  const closer=e.target.closest('[data-close-modal]');if(closer){const modal=closer.closest('.modal-backdrop');if(modal){modal.hidden=true;modal.style.display='none';}}
  if(e.target.classList.contains('modal-backdrop'))closeSheet();
@@ -76,7 +76,7 @@ document.addEventListener('click',e=>{
 document.addEventListener('keydown',e=>{
  if(e.key==='Escape'){
   if(['edit-booking','record-payment'].includes(activeRoute?.screen)){e.preventDefault();closeSheet();}
-  document.querySelectorAll('.dropdown-menu[open],.more-menu[open]').forEach(m=>m.removeAttribute('open'));
+  document.querySelectorAll('.dropdown-menu[open],.more-dropdown-menu[open]').forEach(m=>m.removeAttribute('open'));
   document.querySelectorAll('[aria-expanded="true"]').forEach(m=>m.setAttribute('aria-expanded','false'));
  }
  if(e.key==='Tab'){
