@@ -34,13 +34,13 @@ export function createHttpLedgerApi(presentation,{origin,timeout=4000,retries=1,
   onState('error');throw Error(error?.name==='AbortError'?'Ledger request timed out.':error?.message||'Unable to load ledger.');
  }
  const normalize=r=>({...r,client:r.guest??r.client,total:r.originalPrice??(r.flags?.needsPrice?null:r.agreedPrice),financialTotal:r.agreedPrice,settled:r.status==='Settled'||!!r.settled,cancelled:r.status==='Cancelled'||!!r.cancelled});
- async function post(path,body,callTimeout=timeout){
+ async function post(path,body,callTimeout=timeout,retryAuth=true){
   for(let reauth=0;;reauth++){
   const headers={'Content-Type':'application/json',...await authHeaders()};
   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),callTimeout);
   try{const response=await fetcher(new URL(path,origin),{method:'POST',body:JSON.stringify(body),headers,credentials:'omit',cache:'no-store',signal:controller.signal});
-   if(auth&&(response.status===401||response.status===403)){const e=await authFailure(response);if(response.status===401&&reauth<1)continue;throw e;}
-   const data=await response.json();if(!response.ok){const e=Error(data.error||'Unable to save ledger ('+response.status+').');e.status=response.status;throw e;}return data;}
+   if(auth&&(response.status===401||response.status===403)){const e=await authFailure(response);if(retryAuth&&response.status===401&&reauth<1)continue;throw e;}
+   const data=await response.json().catch(error=>{if(response.ok)throw error;return {};});if(!response.ok){const e=Error(data.error||'Unable to save ledger ('+response.status+').');e.status=response.status;throw e;}return data;}
   finally{clearTimeout(timer);}
   }
  }
@@ -84,9 +84,9 @@ export function createHttpLedgerApi(presentation,{origin,timeout=4000,retries=1,
   calendarInfo:(year,month)=>get('/calendar',{year,month}),
   commands,createBooking,
   documents:async bookingId=>(await request('/documents',{bookingId})).documents,
-  createContract:async(id,values,requestId)=>post('/documents/contract',{bookingId:id,expectedRevision:(await detail(id)).revision,values,requestId},65000),
+  createContract:async(id,values,requestId)=>post('/documents/contract',{bookingId:id,expectedRevision:(await detail(id)).revision,values,requestId},65000,false),
   issueReceipt:(bookingId,requestId)=>post('/documents/receipt',{bookingId,requestId},65000),
-  retryDocument:id=>post('/documents/'+encodeURIComponent(id)+'/retry',{},65000),
+  retryDocument:id=>post('/documents/'+encodeURIComponent(id)+'/retry',{},65000,false),
   async downloadDocument(id){const response=await fetcher(new URL('/documents/'+encodeURIComponent(id)+'/download',origin),{headers:await authHeaders(),credentials:'omit',cache:'no-store'});if(auth&&(response.status===401||response.status===403))throw await authFailure(response);if(!response.ok||!response.headers.get('Content-Type')?.startsWith('application/pdf'))throw Error('Document download unavailable.');return {preview:response.headers.get('X-Document-Preview')==='true',blob:await response.blob(),filename:decodeURIComponent(response.headers.get('Content-Disposition')?.split("UTF-8''")[1]||'Document.pdf')};},
   async ics(id){const r=await this.detail(id);return bookingIcs(r);}
  };
