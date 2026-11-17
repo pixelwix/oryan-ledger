@@ -20,7 +20,7 @@ if(clientId){
  auth=createAuth({clientId,onState:(state,info)=>{signin?.render(state,info);documentsWarm?.sync();}});
  signin=mountSignIn({auth,onRetry:()=>{if(retryWaiter){const resolve=retryWaiter;retryWaiter=null;resolve();}else auth.start().catch(()=>{});}});
 }
-export const ledgerApi=workerOrigin?createHttpLedgerApi(presentation,{origin:workerOrigin,auth,trustedOrigin}):createLedgerApi(presentation);
+export const ledgerApi=workerOrigin?createHttpLedgerApi(presentation,{origin:workerOrigin,auth,trustedOrigin,today:appConfig?.today}):createLedgerApi(presentation);
 const states=readStates(presentation,()=>render());
 if(workerOrigin){window.addEventListener('offline',()=>states.show('offline'));window.addEventListener('online',()=>{states.clear('offline');render();});}
 const initial=new URLSearchParams(location.search).get('theme')||savedTheme();applyTheme(initial);
@@ -102,3 +102,9 @@ if(auth)await bootAuth();
 ledgerApi.documentsEnabled=appConfig?.documentsEnabled!==false;
 documentsWarm=startDocumentsWarm(ledgerApi,{enabled:appConfig?.documentsEnabled!==false,minutes:appConfig?.documentsWarmMinutes??DOCUMENTS_WARM_MINUTES,allowed:()=>!auth||auth.state==='signed-in'});
 window.addEventListener('hashchange',render);await render();
+
+// Refresh only on a changed business day; preserve entered sheet values.
+let displayedBusinessDay=ledgerApi.today;
+function refreshBusinessDay(){if(document.hidden)return;const day=ledgerApi.today;if(day!==displayedBusinessDay){displayedBusinessDay=day;if(!document.querySelector('[role="dialog"]'))render();}}
+window.addEventListener('focus',refreshBusinessDay);
+document.addEventListener('visibilitychange',refreshBusinessDay);

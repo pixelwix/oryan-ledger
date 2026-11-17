@@ -1,11 +1,13 @@
+import {businessToday,localTodayOverride} from './business-date.mjs';
 // HTTP is the sole data source in this adapter. Fixture adapter is presentation/price
 // helpers only; no read fallback and no Stage 3 command transport.
 import {createLedgerApi,balance} from './adapter.mjs';
 export function localWorkerOrigin(value){const url=new URL(value);if(url.protocol!=='http:'||!['localhost','127.0.0.1','[::1]'].includes(url.hostname)||url.username||url.password||url.pathname!=='/'||url.search||url.hash)throw Error('Worker must be a loopback HTTP origin.');return url.origin;}
 export function hostedOrigin(value){const url=new URL(value);if(url.protocol!=='https:'||url.username||url.password||url.pathname!=='/'||url.search||url.hash)throw Error('Worker must be an exact https origin.');return url.origin;}
-export function createHttpLedgerApi(presentation,{origin,timeout=4000,retries=1,fetcher=fetch,onState=()=>{},auth=null,trustedOrigin=false}){
+export function createHttpLedgerApi(presentation,{origin,timeout=4000,retries=1,fetcher=fetch,onState=()=>{},auth=null,trustedOrigin=false,today,pageOrigin=globalThis.location?.origin,clock=()=>new Date()}){
  let documentsEnabled=true,renderCache=null;const details=new Map(),pending=new Map();
  origin=auth&&trustedOrigin?hostedOrigin(origin):localWorkerOrigin(origin);const helpers=createLedgerApi(presentation);
+ const override=localTodayOverride(today,pageOrigin),getToday=()=>override||businessToday(clock());
 
  // Sign-in (Stage 4): every Worker call carries the Google ID token; a 401 asks auth to renew/re-sign-in and retries once
  // (nothing was processed), a 403 means the account is not allowed (shown on the sign-in screen, never retried).
@@ -56,7 +58,7 @@ export function createHttpLedgerApi(presentation,{origin,timeout=4000,retries=1,
  async function commands(type,id,values={}){
   const r=id?(details.get(id)||await detail(id)):null;
   if(type==='edit'){const fields=['client','phone','contract','type','date','due','covers','projector','audio','bar','security','notes'];values={...Object.fromEntries(fields.map(k=>[k,r[k]])),total:r.total,...values};}
-  if(type==='markSettled')values={cutoff:helpers.today,...values};
+  if(type==='markSettled')values={cutoff:getToday(),...values};
   return save({type,bookingId:id,expectedRevision:r?.revision,values});
  }
  async function createBooking(values,metadata){
@@ -66,22 +68,22 @@ export function createHttpLedgerApi(presentation,{origin,timeout=4000,retries=1,
   const batch=[{type:'create',values},{type:'edit',bookingId:'$created',values:{...Object.fromEntries(fields.filter(k=>values[k]!==undefined).map(k=>[k,values[k]])),contract:'',lines:metadata.lines,reason:'Initial itemized price'}}];
   // Contract and revision are resolved from the newly created record inside the transaction.
   batch[1].values.contract='$created';
-  if(metadata.depositStatus==='Held')batch.push({type:'deposit',bookingId:'$created',values:{kind:'receive',amount:300,date:helpers.today,method:values.method,reason:'Initial refundable deposit'}});
+  if(metadata.depositStatus==='Held')batch.push({type:'deposit',bookingId:'$created',values:{kind:'receive',amount:300,date:getToday(),method:values.method,reason:'Initial refundable deposit'}});
   if(metadata.depositStatus==='Waived')batch.push({type:'waiveDeposit',bookingId:'$created',values:{reason:metadata.waiverReason||''}});
   const made=await save({type:'batch',commands:batch});return {...made,balance:balance(made)};
  }
  async function list({q='',filter='all',sort='date',from='',to=''}={}){
   let rows=(await get('/bookings',{q:q.trim()||undefined,from:from||undefined,to:to||undefined})).records.map(normalize);
-  rows=rows.filter(r=>filter==='all'||filter==='due'&&r.balance>0&&!r.cancelled||filter==='attention'&&(r.flags?.needsPrice||r.importedDifference||r.due&&r.due<helpers.today&&r.balance>0||r.date<helpers.today&&r.type!=='Blackout'||r.flags?.depositHeld)&&!r.settled||filter==='upcoming'&&r.date>=helpers.today&&!r.cancelled||filter==='past'&&r.date<helpers.today||filter==='cancelled'&&r.cancelled||filter==='settled'&&r.settled);
+  rows=rows.filter(r=>filter==='all'||filter==='due'&&r.balance>0&&!r.cancelled||filter==='attention'&&(r.flags?.needsPrice||r.importedDifference||r.due&&r.due<getToday()&&r.balance>0||r.date<getToday()&&r.type!=='Blackout'||r.flags?.depositHeld)&&!r.settled||filter==='upcoming'&&r.date>=getToday()&&!r.cancelled||filter==='past'&&r.date<getToday()||filter==='cancelled'&&r.cancelled||filter==='settled'&&r.settled);
   return rows.sort(sort==='guest'?(a,b)=>a.client.localeCompare(b.client):sort==='balance'?(a,b)=>(b.balance||0)-(a.balance||0):(a,b)=>a.date.localeCompare(b.date));
  }
  async function payments(params={}){let out=[],offset=0;for(;;){const page=await get('/payments',{...params,offset,limit:500});out=out.concat(page.records);if(out.length>=page.summary.count)return out;offset+=500;if(offset>50000)throw Error('Narrow the payment search.');}}
- return {...helpers,beginRead(){renderCache=new Map();},endRead(){renderCache=null;},mode:'http',get documentsEnabled(){return documentsEnabled;},set documentsEnabled(value){documentsEnabled=value!==false;},list,search:q=>list({q}),
+ return {...helpers,beginRead(){renderCache=new Map();},endRead(){renderCache=null;},mode:'http',get today(){return getToday();},get documentsEnabled(){return documentsEnabled;},set documentsEnabled(value){documentsEnabled=value!==false;},list,search:q=>list({q}),
   detail,cachedDetail:id=>{const r=details.get(id);return r?{...r,client:r.guest??r.client,balance:balance(r)}:null;},
   me:()=>request('/me'),counts:()=>get('/counts'),summary:async()=>{const [s,p]=await Promise.all([get('/summary'),get('/payments',{limit:1})]);return {...s,balance:s.balanceToCollect,novemberPayments:s.monthPayments,novemberEvents:s.eventsThisMonth,depositHeld:p.summary.depositHeld};},
-  attention:async()=> (await get('/attention')).items,insights:year=>get('/insights',{year:year||'2026'}),payments,
-  calendar:async(year,month)=>(await get('/calendar',{year,month})).records,
-  calendarInfo:(year,month)=>get('/calendar',{year,month}),
+  attention:async()=> (await get('/attention')).items,insights:year=>get('/insights',{year:year||getToday().slice(0,4)}),payments,
+  calendar:async(year,month)=>(await get('/calendar',{year:year??getToday().slice(0,4),month:month??getToday().slice(5,7)})).records,
+  calendarInfo:(year,month)=>get('/calendar',{year:year??getToday().slice(0,4),month:month??getToday().slice(5,7)}),
   commands,createBooking,
   warmDocuments:()=>post('/documents/warm',{},timeout,false),
   documents:async bookingId=>(await request('/documents',{bookingId})).documents,
@@ -95,7 +97,7 @@ export function createHttpLedgerApi(presentation,{origin,timeout=4000,retries=1,
 export function bookingIcs(r){
  const escape=v=>String(v||'').replace(/\\/g,'\\\\').replace(/\r?\n/g,'\\n').replace(/,/g,'\\,').replace(/;/g,'\\;');
  const next=new Date(r.date+'T00:00:00Z');next.setUTCDate(next.getUTCDate()+1);
- const lines=['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Oryan//Ledger//EN','BEGIN:VEVENT','UID:'+escape(r.id)+'@oryan.local','DTSTAMP:20261115T000000Z','DTSTART;VALUE=DATE:'+r.date.replace(/-/g,''),'DTEND;VALUE=DATE:'+next.toISOString().slice(0,10).replace(/-/g,''),'SUMMARY:'+escape(r.client+' · '+r.type),'DESCRIPTION:'+escape(r.contract),...(r.cancelled?['STATUS:CANCELLED']:[]),'END:VEVENT','END:VCALENDAR'];
+ const lines=['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Oryan//Ledger//EN','BEGIN:VEVENT','UID:'+escape(r.id)+'@oryan.local','DTSTAMP:'+new Date().toISOString().replace(/[-:]/g,'').replace(/\.\d{3}Z$/,'Z'),'DTSTART;VALUE=DATE:'+r.date.replace(/-/g,''),'DTEND;VALUE=DATE:'+next.toISOString().slice(0,10).replace(/-/g,''),'SUMMARY:'+escape(r.client+' · '+r.type),'DESCRIPTION:'+escape(r.contract),...(r.cancelled?['STATUS:CANCELLED']:[]),'END:VEVENT','END:VCALENDAR'];
  // RFC5545 folding is by UTF-8 octets, never by JS character count.
  return lines.map(line=>{let out='',bytes=0;for(const c of line){const n=new TextEncoder().encode(c).length;if(bytes+n>75){out+='\r\n ';bytes=1;}out+=c;bytes+=n;}return out;}).join('\r\n')+'\r\n';
 }

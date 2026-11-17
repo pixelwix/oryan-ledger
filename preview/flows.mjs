@@ -33,7 +33,7 @@ async function hydrateDetail(api,route){
  if(route.screen==='booking'){
   const walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT);let node;while((node=walker.nextNode())){node.textContent=node.textContent.replace('martinez.ray@example.invalid',r.email||'—').replace('10:00 AM – Midnight',rentalText(r.rentalWindow)).replace('160 Guests',r.guestCount!=null?String(r.guestCount)+' Guests':'—');}
  }
- if(route.screen==='record-payment'){$('paymentAmount').value=r.balance?.toFixed(2)||'0.00';if(r.balance==null){$('paymentAmount').setCustomValidity('Set the agreed price before recording a payment.');}}
+ if(route.screen==='record-payment'){$('paymentDate').value=api.today;$('paymentAmount').value=r.balance?.toFixed(2)||'0.00';if(r.balance==null){$('paymentAmount').setCustomValidity('Set the agreed price before recording a payment.');}}
  if(route.screen==='edit-booking'){
   const lines=r.lines||{hall:r.total||0,extras:[],discount:0};
   if(r.total==null)$('displayWasTotal').textContent='Not agreed';

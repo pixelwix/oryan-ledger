@@ -1,8 +1,9 @@
+import {businessToday} from './business-date.mjs';
 export const contractAllowed=r=>!r.cancelled&&r.type!=='Blackout';
 export function schedulePassed(r,today){const date=new Date(r.date+'T12:00:00Z');date.setUTCDate(date.getUTCDate()-14);return date.toISOString().slice(0,10)<today;}
 export function outdatedContract(row,r){
  if(row.kind!=='contract'||row.status!=='saved')return '';
- return (r.activity||[]).filter(e=>Date.parse(e.at)>Date.parse(row.generated_at)&&e.changes?.some(c=>c.field==='contractStatus'&&c.after==='Not prepared')).map(e=>e.at.slice(0,10)).sort().slice(-1)[0]||'';
+ return (r.activity||[]).filter(e=>Date.parse(e.at)>Date.parse(row.generated_at)&&e.changes?.some(c=>c.field==='contractStatus'&&c.after==='Not prepared')).map(e=>businessToday(e.at)).sort().slice(-1)[0]||'';
 }
 export function refreshContractCard(r){
  if(location.hash.split('?')[0]!=='#/booking/'+encodeURIComponent(r.id))return;
