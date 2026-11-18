@@ -699,3 +699,9 @@
 
 /* App integration (Stage 4): the sign-in card lives in an overlay above the app so unsaved form values stay in the page below. */
 .signin-overlay { position: fixed; inset: 0; z-index: 1000; background: var(--bg); overflow: auto; }
+
+/* What's new dialog (footer) */
+.whats-new-body{max-height:min(70vh,560px);overflow:auto}
+.whats-new-entry{margin:0 0 16px}
+.whats-new-entry h3{font-size:14px;margin:0 0 6px}
+.whats-new-entry ul{margin:0;padding-left:18px;font-size:14px;line-height:1.5}

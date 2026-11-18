@@ -121,7 +121,7 @@ export function mountSignIn({ auth, assetBase = './', onRetry = () => {}, toast 
   function syncInert() { if (document.body) document.body.inert = Boolean(overlay); }
 
   /** Alternative A: a quiet account line below the page content (below the fold; nothing above it moves). */
-  function footer({ email, isOwner }) {
+  function footer({ email, isOwner, version, notes }) {
     document.getElementById('accountControlFooter')?.remove();
     ensureCss();
     const bar = el('footer', { class: 'account-footer-bar', id: 'accountControlFooter' }), inner = el('div', { class: 'account-footer-inner' });
@@ -133,6 +133,7 @@ export function mountSignIn({ auth, assetBase = './', onRetry = () => {}, toast 
     out.insertAdjacentHTML('beforeend', SIGN_OUT); out.append(document.createTextNode('Sign out'));
     out.addEventListener('click', async () => { out.disabled=true;try{await auth.signOut();location.reload();}catch{out.disabled=false;toast('Sign-out could not be confirmed. Reconnect and try again.');} });
     if(isOwner){const end=el('button',{type:'button',class:'btn-signout-link',id:'btnEndAllSessions'},'End all sessions');end.onclick=async()=>{if(!await confirmEndSessions(end))return;end.disabled=true;try{await auth.revokeAll();await auth.signOut();location.reload();}catch{end.disabled=false;toast('Unable to end sessions. Try again.');}};actions.append(end);}
+    if (version && Array.isArray(notes) && notes.length) { const news = el('button', { type: 'button', class: 'btn-signout-link', id: 'btnWhatsNew' }, 'v' + version + ' \u00b7 What\u2019s new'); news.onclick = () => whatsNew(news, version, notes); actions.append(news); }
     actions.append(out); inner.append(info, actions); bar.append(inner);
     const main = document.querySelector('main'); (main?.parentNode || document.body).insertBefore(bar, main ? main.nextSibling : null);
   }
@@ -153,4 +154,17 @@ function confirmEndSessions(opener){
   cancel.onclick=()=>finish(false);yes.onclick=()=>finish(true);backdrop.onclick=e=>{e.stopPropagation();if(e.target===backdrop)finish(false);};
   actions.append(cancel,yes);body.append(actions);dialog.append(header,body);backdrop.append(dialog);document.body.append(backdrop);document.addEventListener('keydown',key,true);cancel.focus();
  });
+}
+
+// "What's new": the version history from v2/changelog.mjs in the same modal pieces as the session confirmation.
+function whatsNew(opener,version,notes){
+ const backdrop=el('div',{class:'modal-backdrop',id:'whatsNewDialog'}),dialog=el('div',{class:'modal-dialog',role:'dialog','aria-modal':'true','aria-labelledby':'whatsNewTitle'});
+ const header=el('div',{class:'modal-header'}),body=el('div',{class:'modal-body whats-new-body'}),actions=el('div',{class:'modal-actions'});
+ header.append(el('h2',{class:'modal-title',id:'whatsNewTitle'},'What\u2019s new \u00b7 v'+version));
+ for(const entry of notes){const section=el('section',{class:'whats-new-entry'});section.append(el('h3',{},'v'+entry.version+' \u00b7 '+entry.title+' \u00b7 '+entry.date));const list=el('ul',{});for(const item of entry.items)list.append(el('li',{},item));section.append(list);body.append(section);}
+ const close=el('button',{type:'button',class:'btn btn-primary',id:'whatsNewClose'},'Close');
+ const finish=()=>{document.removeEventListener('keydown',key,true);backdrop.remove();opener.focus();};
+ const key=e=>{if(e.key==='Escape'){e.preventDefault();e.stopImmediatePropagation();finish();}if(e.key==='Tab'){e.preventDefault();close.focus();}};
+ close.onclick=finish;backdrop.onclick=e=>{e.stopPropagation();if(e.target===backdrop)finish();};
+ actions.append(close);body.append(actions);dialog.append(header,body);backdrop.append(dialog);document.body.append(backdrop);document.addEventListener('keydown',key,true);close.focus();
 }
