@@ -1,3 +1,5 @@
+import {bookingTransactions,transactionActions} from './transaction-actions.mjs';
+import {transactionSheet} from './transaction-sheet.mjs';
 import {warmDocuments} from './documents-lifecycle.mjs';
 import {contractAllowed,refreshContractCard} from './document-state.mjs';
 import {bookingRowBuilder,dueDate,rowVariant} from './booking-row.mjs';
@@ -49,7 +51,7 @@ async function hydrateDetail(api,route){
   const parts=[['Hall Rental Base',lines.hall],...lines.extras.map(e=>[e.label,e.amount]),['Discount',-lines.discount],['Total Agreed Event Charge',r.financialTotal],['Total Payments Recorded So Far',-r.paid],['Remaining Balance Due',r.balance]];
   parts.forEach(([label,value],i)=>{const tr=row.cloneNode(true);tr.children[0].textContent=label;tr.children[1].textContent=value==null?'Not agreed':(value<0?'-':'')+money(Math.abs(value));if(i===parts.length-1)tr.className='breakdown-balance-row';if(i===parts.length-3)tr.className='breakdown-total-row';table.append(tr);});
   const timeline=document.querySelector('.timeline'),sample=timeline.firstElementChild.cloneNode(true);timeline.replaceChildren();
-  r.payments.slice().reverse().forEach(t=>{const item=sample.cloneNode(true);const spans=item.querySelectorAll('h5 span');spans[0].textContent=money(t.amount)+' · '+t.method;spans[1].textContent=t.date;item.querySelector('button')?.setAttribute('data-transaction-id',t.id);item.querySelector('p').textContent=t.note||'Recorded in the fictional local ledger';timeline.append(item);});
+  bookingTransactions(r).slice().reverse().forEach(t=>{const item=sample.cloneNode(true);const spans=item.querySelectorAll('h5 span');const negative=t.category==='refund'||t.category==='deposit'&&t.kind!=='receive';spans[0].textContent=(t.category==='refund'?'Event refund · ':t.category==='deposit'?'Deposit '+t.kind+' · ':t.opening?'Opening payment · ':'')+(negative?'-':'')+money(t.amount)+' · '+(t.method||'Method not recorded');spans[1].textContent=t.date||'Date not recorded';item.querySelector('button')?.setAttribute('data-transaction-id',t.id);item.querySelector('p').textContent=t.note||'Recorded in the fictional local ledger';timeline.append(item);});
   const history=document.querySelector('.history-entry').parentElement,sampleHistory=history.firstElementChild.cloneNode(true);history.replaceChildren();
   r.activity.slice().reverse().forEach(entry=>{const item=sampleHistory.cloneNode(true);item.querySelector('strong').textContent=entry.at;item.querySelector('.history-meta span').textContent=entry.actor;const paras=item.querySelectorAll('p');paras[0].textContent=entry.type;paras[1].textContent='Reason: '+(entry.reason||'—');history.append(item);});
   document.querySelector('details summary span').textContent='Change History & Audit Log ('+r.activity.length+' revisions)';
@@ -98,9 +100,13 @@ export async function mountFlows({api,route,go,toast,closeSheet}){
  const screen=route.screen;let r,saving=false;
  if(['booking','edit-booking','record-payment'].includes(screen))r=await hydrateDetail(api,route);
  if(screen==='overview')await mountOverview(api);
- if(screen==='payments')await mountPayments(api,toast);
+ if(screen==='payments')await mountPayments(api,toast,go);
  mountLockedBehavior(screen,api,route,toast,r);
  if(screen==='booking'){await mountDocuments(api,route.id,toast);document.querySelectorAll('.timeline button').forEach((button,i)=>{button.dataset.transactionId||=r.payments.slice().reverse()[i]?.id||'';});}
+ if(screen==='booking'){
+  const transactions=(r.id==='sophia'&&r.revision===api.original('sophia').revision?r.payments.map(t=>({...t,category:'payment'})):bookingTransactions(r)).slice().reverse();
+  document.querySelectorAll('.timeline-content').forEach((row,i)=>{const t=transactions[i];if(t){row.querySelector('button').dataset.transactionId=t.id;mountTransactionActions(row,api,r,t.id,toast,go,true);}});
+ }
  // Delegate actions once per mounted screen. Removed DOM listeners are collected with the screen.
  document.body.addEventListener('submit',async e=>{
   e.preventDefault();if(e.target.dataset.commandForm)return;if(saving||!e.target.reportValidity())return;
@@ -256,7 +262,7 @@ async function mountCalendar(api,go){
 }
 
 async function mountOverview(api){return mountHttpOverview(api);}
-async function mountPayments(api,toast){
+async function mountPayments(api,toast,go){
  const register=await api.payments();
  {
   for(const t of register)if(!t.eventType){const r=await api.detail(t.bookingId);t.eventType=r.type;}
@@ -275,8 +281,9 @@ async function mountPayments(api,toast){
  }
  const body=$('paymentsTableBody');
  [...body.children].forEach((row,i)=>{const transaction=register[i],button=[...row.querySelectorAll('button')].find(b=>b.textContent.trim()==='PDF');if(!button||!transaction)return;button.onclick=async()=>{try{const rows=await api.documents(transaction.bookingId);let copy=await receiptRow(rows,transaction.id);if(!copy)throw Error('No receipt PDF is available after the document cutoff.');if(copy.status!=='saved')copy=await issueReceiptWithProgress(api,transaction.bookingId,copy.id,toast);if(copy.status==='saved')await downloadDocument(api,copy.id,toast);else toast('PDF saving pending. Retry from Saved copies.');}catch(error){toast(error.message);}};});
+ for(const [i,row] of [...body.children].entries()){const t=register[i],record=await api.detail(t.bookingId);mountTransactionActions(row.lastElementChild,api,record,t.id,toast,go,false,row);}
  if(api.mode==='http'){const notes=document.querySelectorAll('.stat-note'),paidCount=register.filter(t=>t.kind==='payment').length,refundCount=register.filter(t=>t.kind==='refund').length,held=(await api.list()).filter(r=>r.flags?.depositHeld).length;notes[0].textContent=paidCount+' event receipts toward charges less '+refundCount+' '+(refundCount===1?'refund':'refunds');notes[1].textContent=held+' refundable damage '+(held===1?'deposit':'deposits')+'; prior sums held';notes[2].textContent=refundCount+' event '+(refundCount===1?'refund':'refunds')+'; deposit return excluded';}
- const values=document.querySelectorAll('.stat-value');values[0].textContent=money(register.filter(t=>t.kind!=='deposit').reduce((n,t)=>n+t.amount,0));values[1].textContent=money((await api.summary()).depositHeld);values[2].textContent=money(-register.filter(t=>t.kind==='refund').reduce((n,t)=>n+t.amount,0));
+ const values=document.querySelectorAll('.stat-value');values[0].textContent=money(register.filter(t=>!t.voided&&t.kind!=='deposit').reduce((n,t)=>n+t.amount,0));values[1].textContent=money((await api.summary()).depositHeld);values[2].textContent=money(-register.filter(t=>!t.voided&&t.kind==='refund').reduce((n,t)=>n+t.amount,0));
  document.querySelectorAll('.filter-chip').forEach(chip=>{const kind=chip.dataset.filter,count=kind==='all'?register.length:register.filter(t=>t.kind===kind).length;chip.textContent=chip.textContent.replace(/\(\d+\)/,'('+(kind==='all'?String(count).padStart(2,'0'):count)+')');});
 }
 
@@ -302,4 +309,22 @@ async function mountHttpOverview(api){
   if(r.id!==old?.id||r.client!==old.client||r.date!==old.date||r.type!==old.type||r.contract!==old.contract||r.guestCount!==old.guestCount){node.querySelector('.badge').textContent=r.balance>0?'Balance due':'Paid in full';node.querySelector('h3').textContent=r.client;const date=new Date(r.date+'T12:00:00Z'),pill=node.querySelector('.date-pill');pill.firstChild.textContent=date.toLocaleDateString('en-US',{month:'short',timeZone:'UTC'})+' ';pill.querySelector('span').textContent=r.date.slice(-2);pill.lastChild.textContent=' · '+date.toLocaleDateString('en-US',{weekday:'short',timeZone:'UTC'});node.querySelector('h3 + p').textContent=r.type+' · '+(r.guestCount??'—')+' guests · Contract #'+(r.contract||'—');}
   if(r.id!==old?.id||r.total!==old.total||r.paid!==old.paid){const financial=node.children[1];financial.children[0].querySelector('strong').textContent=r.total==null?'Not agreed':money(r.total);financial.children[1].querySelector('strong').textContent=money(r.paid);financial.children[2].textContent='Balance: '+(r.total==null?'Not agreed':money(r.balance));const badge=node.querySelector('.badge');badge.textContent=r.total==null?'Needs agreed price':r.balance===0?'Paid in full':'Balance due';badge.className='badge '+(r.total==null?'badge-unpriced':r.balance===0?'badge-paid':'badge-due');const pay=node.querySelector('a[href$="/pay"]');if(pay){pay.textContent=r.total==null?'Set price':r.balance===0?'Details':'Pay '+money(r.balance);pay.href='#/booking/'+r.id+(r.total==null?'/edit':r.balance===0?'':'/pay');}}
   node.querySelectorAll('a').forEach(a=>{const href=a.getAttribute('href'),suffix=href.endsWith('/pay')?'/pay':href.endsWith('/edit')?'/edit':'';a.href='#/booking/'+encodeURIComponent(r.id)+suffix;});return node;}));
+}
+
+function mountTransactionActions(host,api,record,transactionId,toast,go,history,row=host){
+ const policy=transactionActions(record,transactionId);if(!policy)return;
+ row.dataset.transactionId=transactionId;
+ if(policy.transaction.voided){
+  const label=document.createElement('span');label.className='badge';label.textContent='VOID';host.append(label);
+  const amount=history?row.querySelector('h5 span'):row.children[4];if(amount)amount.style.textDecoration='line-through';return;
+ }
+ const receipt=host.querySelector('button');
+ for(const action of policy.canReturn?['void','return']:['void']){
+  const button=document.createElement('button');button.type='button';button.className='btn btn-quiet btn-sm';
+  if(history)button.setAttribute('style',receipt.getAttribute('style'));
+  button.style.minWidth='var(--touch-target-min)';
+  button.textContent=action==='void'?'Void':'Return';button.dataset.transactionAction=action;
+  button.setAttribute('aria-label',button.textContent+' payment of '+money(policy.transaction.amount)+' on '+(policy.transaction.date||'date not recorded'));
+  button.onclick=()=>transactionSheet({api,id:record.id,transactionId,action,toast,go,opener:button}).catch(e=>toast(e.message));host.append(document.createTextNode(' '),button);
+ }
 }

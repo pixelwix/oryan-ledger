@@ -1,15 +1,10 @@
-// Browser sign-in state for the v2 ledger (Stage 4). Google Identity Services (GIS) supplies a short-lived
-// ID token; this module keeps it IN MEMORY ONLY (never localStorage, never a URL, never logged), checks the
-// nonce it asked for, renews it silently before expiry and forgets it on sign-out. The Worker is the only
-// authority: it verifies the signature and the allowlist on every request. Nothing here grants access.
-// Only the account email (not a credential) is kept in sessionStorage so a reload can try a silent sign-in.
-
+// Fixed 24-hour opaque Worker sessions. Google credentials are exchanged once and never persisted.
 export class AuthRequired extends Error {
   constructor(code = 'signed_out') { super('Sign-in required'); this.name = 'AuthRequired'; this.code = code; }
 }
 
 const GIS_SRC = 'https://accounts.google.com/gsi/client';
-const MARKER = 'oryan.session.email';
+export const SESSION_KEY = 'oryan.session.v1';
 
 // Decode (NOT verify) a JWT payload for display/expiry/nonce sanity only.
 export function decodeJwtPayload(token) {
@@ -40,130 +35,62 @@ function randomNonce(cryptoApi = globalThis.crypto) {
   return [...bytes].map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-/**
- * @param {object} options
- * @param {string} options.clientId  Google OAuth client ID (public value).
- * @param {() => Promise<object>} [options.loadGis]  Returns google.accounts.id (injectable for tests).
- * @param {Storage|null} [options.session]  sessionStorage (only the email marker is stored).
- * @param {() => number} [options.now]  Seconds since epoch.
- * @param {number} [options.renewBeforeSec]  Silent renewal lead time.
- * @param {number} [options.silentTimeoutMs]
- * @param {(state:string, info:object)=>void} [options.onState]
- */
-export function createAuth({
-  clientId, loadGis = () => loadGoogleIdentity(), session = safeSession(), now = () => Date.now() / 1000,
-  renewBeforeSec = 600, silentTimeoutMs = 8000, onState = () => {}, setTimer = setTimeout, clearTimer = clearTimeout, cryptoApi = globalThis.crypto
-} = {}) {
-  if (!clientId) throw new Error('A Google client ID is required.');
-  let gis = null, token = null, exp = 0, email = '', nonce = '', state = 'signed-out', renewTimer = null, silent = null;
-  const waiters = new Set();
-
-  const marker = {
-    read() { try { return session?.getItem(MARKER) || ''; } catch { return ''; } },
-    write(value) { try { session?.setItem(MARKER, value); } catch {} },
-    clear() { try { session?.removeItem(MARKER); } catch {} }
-  };
-
-  function setState(next, info = {}) { state = next; onState(next, { email, ...info }); }
-  const valid = (margin = 30) => Boolean(token) && exp - margin > now();
-
-  function prepare(autoSelect = false) {
-    nonce = randomNonce(cryptoApi);
-    gis.initialize({ client_id: clientId, callback: handleCredential, nonce, auto_select: autoSelect, cancel_on_tap_outside: false, use_fedcm_for_prompt: true, itp_support: true });
-  }
-
-  function handleCredential(response) {
-    const credential = response?.credential;
-    const payload = credential ? decodeJwtPayload(credential) : null;
-    // Sanity checks only (the Worker verifies everything): shape, audience, nonce we issued, unexpired.
-    if (!payload || payload.aud !== clientId || !nonce || payload.nonce !== nonce || !(payload.exp > now()) || typeof payload.email !== 'string') {
-      silent?.reject(new AuthRequired('rejected')); silent = null;
-      setState('rejected', { code: 'bad_credential' });
-      return;
-    }
-    token = credential; exp = payload.exp; email = payload.email.trim().toLowerCase();
-    marker.write(email);
-    scheduleRenewal();
-    setState('signed-in');
-    silent?.resolve(token); silent = null;
-    for (const resolve of [...waiters]) resolve(token);
-    waiters.clear();
-  }
-
-  function scheduleRenewal() {
-    clearTimer(renewTimer);
-    const delayMs = Math.max(0, (exp - renewBeforeSec - now()) * 1000);
-    renewTimer = setTimer(() => { refresh().catch(() => {}); }, Math.min(delayMs, 2 ** 31 - 1));
-  }
-
-  function forget() { token = null; exp = 0; clearTimer(renewTimer); renewTimer = null; }
-
-  async function ready() { if (!gis) gis = await loadGis(); return gis; }
-
-  /** Silent renewal/auto sign-in through GIS prompt(); resolves with a token or rejects with AuthRequired. */
-  async function refresh() {
-    await ready();
-    if (silent) return silent.promise;
-    let resolve, reject;
-    const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
-    silent = { promise, resolve, reject };
-    prepare(true);
-    const timer = setTimer(() => { if (silent) { silent.reject(new AuthRequired('silent_failed')); silent = null; } }, silentTimeoutMs);
-    gis.prompt(notification => {
-      const skipped = notification?.isNotDisplayed?.() || notification?.isSkippedMoment?.() || notification?.isDismissedMoment?.() && notification.getDismissedReason?.() !== 'credential_returned';
-      if (skipped && silent) { silent.reject(new AuthRequired('silent_failed')); silent = null; }
-    });
-    return promise.finally(() => clearTimer(timer));
-  }
-
-  return {
-    get state() { return state; },
-    get email() { return email || marker.read(); },
-    get token() { return valid() ? token : null; },
-    get signedIn() { return valid(0); },
-    /** Start: try a silent sign-in when this tab signed in before, otherwise show the signed-out screen. */
-    async start() {
-      try { await ready(); } catch { setState('trouble', { code: 'gis_unavailable' }); return state; }
-      email = marker.read();
-      if (!email) { setState('signed-out'); return state; }
-      setState('checking');
-      try { await refresh(); } catch { setState('expired'); }
-      return state;
-    },
-    /** Draw Google's own button into an element (required for ID tokens). */
-    async renderButton(element, options = {}) {
-      await ready(); prepare(false);
-      gis.renderButton(element, { type: 'standard', theme: options.theme || 'outline', size: 'large', text: 'signin_with', shape: 'rectangular', logo_alignment: 'left', width: options.width || 320 });
-    },
-    /** A token the adapter can send now; waits for the user (overlay) when there is none. */
-    async ensureToken() {
-      if (valid()) return token;
-      if (marker.read() || token) {
-        try { return await refresh(); } catch { /* fall through to interactive sign-in */ }
-      }
-      forget();
-      if (state !== 'not-allowed' && state !== 'rejected' && state !== 'trouble') setState(marker.read() ? 'expired' : 'signed-out');
-      return new Promise(resolve => waiters.add(resolve));
-    },
-    /** The Worker rejected the token we sent. */
-    reject(status, code) {
-      if (status === 403) { forget(); setState('not-allowed', { code }); return; }
-      if (code === 'jwks_unavailable' || code === 'unknown_key') { setState('trouble', { code }); return; }
-      forget();
-      if (code === 'expired' || code === 'missing_token') setState('expired', { code });
-      else setState('rejected', { code });
-    },
-    trouble(code = 'network') { setState('trouble', { code }); },
-    retrying() { setState(valid() ? 'signed-in' : state); },
-    signOut() {
-      forget(); marker.clear(); email = '';
-      try { gis?.disableAutoSelect?.(); } catch {}
-      silent?.reject(new AuthRequired('signed_out')); silent = null;
-      waiters.clear();
-      setState('signed-out');
-    },
-    refresh
-  };
+/** Injectable clock/storage/transport/GIS make session behavior testable without Google.
+ * Only opaque Worker sessions persist; all authorization remains server-side. */
+export function createAuth({clientId, origin, fetcher=fetch, storage=safeStorage(), events=globalThis,
+ loadGis=()=>loadGoogleIdentity(), now=()=>Date.now()/1000, onState=()=>{},
+ setTimer=setTimeout, clearTimer=clearTimeout, cryptoApi=globalThis.crypto}={}) {
+ if(!clientId)throw Error('A Google client ID is required.');
+ let gis,token=null,exp=0,email='',state='signed-out',timer,exchange=null,generation=0;
+ const nonces=new Map(),waiters=new Set();
+ const valid=()=>!!token&&now()<exp;
+ const emit=(next,info={})=>{state=next;onState(next,{email,...info});};
+ const clearStorage=()=>{try{storage?.removeItem(SESSION_KEY);}catch{}};
+ function forget(){token=null;exp=0;clearTimer(timer);timer=null;nonces.clear();generation++;}
+ function ended(){forget();clearStorage();emit('expired');}
+ function install(row){
+  if(!row||!/^os1\.[A-Za-z0-9_-]{43}$/.test(row.token)||typeof row.email!=='string'||!Number.isFinite(Date.parse(row.expiresAt)))return false;
+  token=row.token;exp=Date.parse(row.expiresAt)/1000;email=row.email;
+  if(!valid()){ended();return false;}
+  clearTimer(timer);timer=setTimer(ended,Math.max(0,(exp-now())*1000));emit('signed-in');
+  for(const resolve of waiters)resolve(token);waiters.clear();return true;
+ }
+ function restore(){try{const raw=storage?.getItem(SESSION_KEY);return raw?install(JSON.parse(raw)):false;}catch{return false;}}
+ async function request(path,method,credential,body){
+  const response=await fetcher(new URL(path,origin),{method,credentials:'omit',cache:'no-store',headers:{Authorization:'Bearer '+credential,'Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})});
+  const value=await response.json();if(!response.ok){const error=new AuthRequired(value.error);error.status=response.status;throw error;}return value;
+ }
+ async function ready(){if(!gis)gis=await loadGis();return gis;}
+ async function handleCredential(response){
+  if(exchange)return exchange;
+  const credential=response?.credential,payload=credential?decodeJwtPayload(credential):null;
+  for(const [n,at] of nonces)if(now()-at>=300)nonces.delete(n);
+  if(!payload||payload.aud!==clientId||!nonces.has(payload.nonce)||!(payload.exp>now())||typeof payload.email!=='string'){emit('rejected',{code:'bad_credential'});return;}
+  nonces.delete(payload.nonce);email=payload.email.trim().toLowerCase();
+  const attempt=generation;
+  exchange=(async()=>{try{const row=await request('/session','POST',credential);if(attempt!==generation)return;
+   if(!install(row))throw new AuthRequired('bad_session');
+   try{storage?.setItem(SESSION_KEY,JSON.stringify({token:row.token,expiresAt:row.expiresAt,email:row.email}));}catch{}
+  }catch(error){if(attempt!==generation)return;forget();emit(error.status===403?'not-allowed':['jwks_unavailable','unknown_key'].includes(error.code)?'trouble':error instanceof AuthRequired?'rejected':'trouble',{code:error.code||'network'});}finally{exchange=null;}})();
+  return exchange;
+ }
+ events.addEventListener?.('storage',event=>{if(event.key!==SESSION_KEY&&event.key!==null)return;if(!event.newValue){ended();return;}forget();if(!restore())ended();});
+ return {
+  get state(){return state;},get email(){return email;},get token(){return valid()?token:null;},get signedIn(){return valid();},
+  async start(){if(valid()){emit('signed-in');return state;}if(restore())return state;if(state!=='expired')emit('signed-out');return state;},
+  async renderButton(element,options={}){
+   await ready();for(const [n,at] of nonces)if(now()-at>=300)nonces.delete(n);
+   const nonce=randomNonce(cryptoApi);nonces.set(nonce,now());while(nonces.size>8)nonces.delete(nonces.keys().next().value);
+   gis.initialize({client_id:clientId,callback:handleCredential,nonce,auto_select:false,cancel_on_tap_outside:false});
+   gis.cancel?.();
+   gis.renderButton(element,{type:'standard',theme:options.theme||'outline',size:'large',text:'signin_with',shape:'rectangular',logo_alignment:'left',width:options.width||320});
+  },
+  async ensureToken(){if(valid())return token;if(token)ended();else if(!['expired','not-allowed','rejected','trouble'].includes(state))emit('signed-out');return new Promise(resolve=>waiters.add(resolve));},
+  reject(status,code){if(code==='jwks_unavailable'||code==='unknown_key'){emit('trouble',{code});return;}forget();clearStorage();emit(status===403?'not-allowed':['expired','missing_token','session_expired','session_revoked'].includes(code)?'expired':'rejected',{code});},
+  trouble(code='network'){emit('trouble',{code});},retrying(){if(valid())emit('signed-in');},
+  async signOut(){const current=token;if(current){try{await request('/session','DELETE',current);}catch(error){if(!['session_revoked','session_expired'].includes(error.code))throw error;}}forget();clearStorage();email='';emit('signed-out');try{gis?.disableAutoSelect?.();}catch{}},
+  async revokeAll(){if(!valid())throw new AuthRequired('session_expired');return request('/sessions/revoke-all','POST',token,{});},
+  async refresh(){if(valid())return token;ended();throw new AuthRequired('session_expired');}
+ };
 }
-
-function safeSession() { try { return globalThis.sessionStorage || null; } catch { return null; } }
+function safeStorage(){try{return globalThis.localStorage||null;}catch{return null;}}

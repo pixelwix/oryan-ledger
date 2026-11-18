@@ -131,10 +131,26 @@ export function mountSignIn({ auth, assetBase = './', onRetry = () => {}, toast 
     if (isOwner) info.append(el('span', { class: 'badge badge-settled', style: 'font-size:11px;padding:2px 6px;' }, 'Owner'));
     const actions = el('div', { class: 'account-footer-actions' }), out = el('button', { type: 'button', class: 'btn-signout-link', id: 'btnSignOut' });
     out.insertAdjacentHTML('beforeend', SIGN_OUT); out.append(document.createTextNode('Sign out'));
-    out.addEventListener('click', () => { auth.signOut(); location.reload(); });
+    out.addEventListener('click', async () => { out.disabled=true;try{await auth.signOut();location.reload();}catch{out.disabled=false;toast('Sign-out could not be confirmed. Reconnect and try again.');} });
+    if(isOwner){const end=el('button',{type:'button',class:'btn-signout-link',id:'btnEndAllSessions'},'End all sessions');end.onclick=async()=>{if(!await confirmEndSessions(end))return;end.disabled=true;try{await auth.revokeAll();await auth.signOut();location.reload();}catch{end.disabled=false;toast('Unable to end sessions. Try again.');}};actions.append(end);}
     actions.append(out); inner.append(info, actions); bar.append(inner);
     const main = document.querySelector('main'); (main?.parentNode || document.body).insertBefore(bar, main ? main.nextSibling : null);
   }
 
   return { render, hide, footer, syncInert, get visible() { return Boolean(overlay); } };
+}
+
+// Reuses locked v2 modal primitives for the owner session confirmation.
+function confirmEndSessions(opener){
+ return new Promise(resolve=>{
+  const backdrop=el('div',{class:'modal-backdrop',id:'endSessionsConfirm'}),dialog=el('div',{class:'modal-dialog',role:'dialog','aria-modal':'true','aria-labelledby':'endSessionsTitle'});
+  const header=el('div',{class:'modal-header'}),body=el('div',{class:'modal-body'}),actions=el('div',{class:'modal-actions'});
+  header.append(el('h2',{class:'modal-title',id:'endSessionsTitle'},'End all sessions?'));
+  body.append(el('p',{},'Everyone will need to sign in again on every device, including this one.'));
+  const cancel=el('button',{type:'button',class:'btn btn-quiet'},'Cancel'),yes=el('button',{type:'button',class:'btn btn-primary',id:'confirmEndSessions'},'End all sessions');
+  const finish=value=>{document.removeEventListener('keydown',key,true);backdrop.remove();opener.focus();resolve(value);};
+  const key=e=>{if(e.key==='Escape'){e.preventDefault();e.stopImmediatePropagation();finish(false);}if(e.key==='Tab'){e.preventDefault();(document.activeElement===cancel?yes:cancel).focus();}};
+  cancel.onclick=()=>finish(false);yes.onclick=()=>finish(true);backdrop.onclick=e=>{e.stopPropagation();if(e.target===backdrop)finish(false);};
+  actions.append(cancel,yes);body.append(actions);dialog.append(header,body);backdrop.append(dialog);document.body.append(backdrop);document.addEventListener('keydown',key,true);cancel.focus();
+ });
 }

@@ -17,8 +17,8 @@ const clientId=trustedOrigin?appConfig.googleClientId:(workerOrigin?params.get('
 let auth=null,signin=null,me=null,retryWaiter=null,documentsWarm=null;
 if(clientId){
  const [{createAuth},{mountSignIn}]=await Promise.all([import('./auth.mjs'),import('./signin-ui.mjs')]);
- auth=createAuth({clientId,onState:(state,info)=>{signin?.render(state,info);documentsWarm?.sync();}});
- signin=mountSignIn({auth,onRetry:()=>{if(retryWaiter){const resolve=retryWaiter;retryWaiter=null;resolve();}else auth.start().catch(()=>{});}});
+ auth=createAuth({clientId,origin:workerOrigin,onState:(state,info)=>{signin?.render(state,info);documentsWarm?.sync();}});
+ signin=mountSignIn({auth,toast,onRetry:()=>{if(retryWaiter){const resolve=retryWaiter;retryWaiter=null;resolve();}else auth.start().catch(()=>{});}});
 }
 export const ledgerApi=workerOrigin?createHttpLedgerApi(presentation,{origin:workerOrigin,auth,trustedOrigin,today:appConfig?.today}):createLedgerApi(presentation);
 const states=readStates(presentation,()=>render());

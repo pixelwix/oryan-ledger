@@ -9,7 +9,7 @@ export function createHttpLedgerApi(presentation,{origin,timeout=4000,retries=1,
  origin=auth&&trustedOrigin?hostedOrigin(origin):localWorkerOrigin(origin);const helpers=createLedgerApi(presentation);
  const override=localTodayOverride(today,pageOrigin),getToday=()=>override||businessToday(clock());
 
- // Sign-in (Stage 4): every Worker call carries the Google ID token; a 401 asks auth to renew/re-sign-in and retries once
+ // Every Worker call carries the opaque session token; a 401 asks for interactive sign-in and retries once
  // (nothing was processed), a 403 means the account is not allowed (shown on the sign-in screen, never retried).
  async function authHeaders(){return auth?{Authorization:'Bearer '+await auth.ensureToken()}:{};}
  async function authFailure(response){
