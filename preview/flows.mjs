@@ -301,7 +301,7 @@ async function mountHttpOverview(api){
   nodes.push(row);
  }
  list.replaceChildren(...nodes);document.querySelector('.triage-card .badge').textContent=attention.length+' actionable';document.querySelector('.triage-card .card-subtitle').textContent=document.querySelector('.triage-card .card-subtitle').textContent.replace(/\d+ items/,attention.length+' items');
- document.querySelector('.stat-note').textContent='Across '+rows.filter(r=>r.balance>0&&!r.cancelled).length+' priced open balances';
+ {const left=Number(data.settledBalance||0),skip=data.settledBalance!==undefined;document.querySelector('.stat-note').textContent='Across '+rows.filter(r=>r.balance>0&&!r.cancelled&&!(skip&&r.settled)).length+' priced open balances'+(left>0?' · $'+left.toLocaleString('en-US')+' on settled events not counted':'');}
  const group=document.querySelector('.events-trio'),samples=[...group.children].map(n=>n.cloneNode(true));
  const next=rows.filter(r=>r.date>=api.today&&!r.cancelled&&r.type!=='Blackout').slice(0,3);
  group.replaceChildren(...next.map((r,i)=>{const templateIndex=r.total!=null&&r.balance===0?1:i===1?0:Math.min(i,2);const node=samples[templateIndex].cloneNode(true),old=api.original(['sophia','amara','mateo'][templateIndex]);
