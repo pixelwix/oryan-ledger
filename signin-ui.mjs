@@ -30,7 +30,7 @@ export function mountSignIn({ auth, assetBase = './', onRetry = () => {}, toast 
 
   function ensureCss() {
     if (cssLoaded) return; cssLoaded = true;
-    const link = el('link', { rel: 'stylesheet', href: assetBase + 'signin.css', id: 'signinStyles' });
+    const link = el('link', { rel: 'stylesheet', href: assetBase + 'signin.css?v=2.1.2', id: 'signinStyles' });
     document.head.append(link);
   }
 

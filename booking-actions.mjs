@@ -1,14 +1,16 @@
-import paymentScreen from './screens/record-payment.mjs?v=2.1.1';
+import paymentScreen from './screens/record-payment.mjs?v=2.1.2';
 
 const opening = new WeakSet();
 const explanations = {
  reschedule: 'Price and payments stay exactly as they are.',
  archive: 'Archiving hides this cancelled booking from Bookings and Needs attention. Nothing is deleted or changed. You can bring it back from Archived.',
- unarchive: 'This cancelled booking will appear in Bookings again.'
+ unarchive: 'This cancelled booking will appear in Bookings again.',
+ block: 'A blocked date stays off the calendar for new bookings (for example maintenance or an owner hold). Nothing is charged. You can move or release it later.'
 };
 const savedCopiesNote = 'Saved contracts and receipts keep the old date. Prepare a new contract if the client needs one.';
 
 export function bookingActionLabel(action, record) {
+ if (action === 'block') return 'Block a date';
  if (action === 'reschedule') return record.type === 'Blackout' ? 'Move blocked date' : 'Change date';
  return action === 'archive' ? 'Archive' : 'Unarchive';
 }
@@ -37,7 +39,7 @@ export function mountBookingActions(record, referenceDetail) {
  const bar = document.querySelector('.more-dropdown-container');
  const action = record.archived ? 'unarchive' : record.cancelled ? 'archive' : 'reschedule';
  const button = bookingActionButton(action, record, referenceDetail ? 'more-menu-item' : 'btn btn-quiet');
- button.style.minHeight = 'var(--touch-target-min)';
+ // No size overrides: the button must be exactly as large as the buttons beside it (locked UI, no drift).
  if (referenceDetail) {
   bar.querySelector('.more-menu-divider').before(button);
  } else if (!record.archived) {
@@ -57,9 +59,10 @@ export async function openBookingAction({api,id,action,opener,go}) {
  const body = document.body, hash = location.hash;
  opening.add(api);
  try {
-  const record = await api.detail(id);
+  const blocking = action === 'block';                       // creates a new blocked date; there is no booking yet
+  const record = blocking ? {client:'',date:'',type:'Blackout'} : await api.detail(id);
   const allowed = record.archived ? 'unarchive' : record.cancelled ? 'archive' : 'reschedule';
-  if (action !== allowed) throw Error('This action is no longer available. Refresh the booking and try again.');
+  if (!blocking && action !== allowed) throw Error('This action is no longer available. Refresh the booking and try again.');
   const moving = action === 'reschedule';
   const copies = moving && api.documentsEnabled !== false
    ? await api.documents(id).catch(error => { if (api.documentsEnabled !== false) throw error; return []; })
@@ -76,7 +79,7 @@ export async function openBookingAction({api,id,action,opener,go}) {
   const title = bookingActionLabel(action, record);
   modal.querySelector('.modal-title').textContent = title;
   modal.querySelector('.modal-header .badge').remove();
-  modal.querySelector('.modal-header p').textContent = record.client+(moving?' · Current date: '+record.date:'');
+  modal.querySelector('.modal-header p').textContent = blocking ? 'Keep a date off the calendar for new bookings' : record.client+(moving?' · Current date: '+record.date:'');
   modal.querySelector('.modal-header').nextElementSibling.remove();
   dialog.setAttribute('aria-modal','true');
   dialog.setAttribute('aria-describedby','bookingActionExplanation');
@@ -114,14 +117,14 @@ export async function openBookingAction({api,id,action,opener,go}) {
   }
   note(explanations[action],'bookingActionExplanation');
   if (copies.some(copy => copy.kind === 'contract' && copy.status === 'saved')) note(savedCopiesNote,'bookingActionCopies');
-  const date = moving ? field('bookingActionDate','New date','date') : null;
-  const status = moving ? note('','bookingActionAvailability') : null;
+  const date = moving || blocking ? field('bookingActionDate',blocking ? 'Date to block' : 'New date','date') : null;
+  const status = moving || blocking ? note('','bookingActionAvailability') : null;
   if (date) {
    date.setAttribute('aria-describedby',status.id);
    status.setAttribute('role','status');
   }
-  const reason = field('bookingActionReason','Reason for this change','text');
-  reason.maxLength = 500;
+  const reason = field('bookingActionReason',blocking ? 'What is this for? (shown as the name of the blocked date)' : 'Reason for this change','text');
+  reason.maxLength = blocking ? 150 : 500;
   const error = document.createElement('p');
   error.className = 'alert alert-danger';
   error.setAttribute('role','alert');
@@ -202,14 +205,16 @@ export async function openBookingAction({api,id,action,opener,go}) {
     return;
    }
    const values = moving ? {date:date.value,reason:trimmedReason} : {reason:trimmedReason};
+   const blockValues = {client:trimmedReason,phone:'',type:'Blackout',date:blocking ? date.value : '',total:0,paid:0,notes:trimmedReason};
    pending = true;
    for (const control of [submit,cancel,close,reason,date].filter(Boolean)) control.disabled = true;
    form.setAttribute('aria-busy','true');
    error.style.display = 'none';
    try {
-    await api.commands(action,id,values);
+    if (blocking) await api.commands('create',null,blockValues); else await api.commands(action,id,values);
     if (!modal.isConnected) return;
     cleanup();
+    if (blocking) { go('#/calendar','Date blocked.'); return; }
     const message = moving ? (record.type === 'Blackout' ? 'Blocked date moved.' : 'Booking date changed.') : action === 'archive' ? 'Booking archived.' : 'Booking unarchived.';
     go('#/booking/'+encodeURIComponent(id),message);
    } catch (failure) {

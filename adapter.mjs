@@ -1,8 +1,8 @@
-import {fixtureDocuments} from './document-preview.mjs?v=2.1.1';
+import {fixtureDocuments} from './document-preview.mjs?v=2.1.2';
 // In-memory synthetic adapter; optional contact and rental fields live in engine records.
-import seed from './fixtures.mjs?v=2.1.1';
-import {displayMetadata} from './display-fixtures.mjs?v=2.1.1';
-import {engine,Ledger} from './engine.mjs?v=2.1.1';
+import seed from './fixtures.mjs?v=2.1.2';
+import {displayMetadata} from './display-fixtures.mjs?v=2.1.2';
+import {engine,Ledger} from './engine.mjs?v=2.1.2';
 const clone=v=>JSON.parse(JSON.stringify(v));
 export const money=n=>'$'+Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 export const balance=r=>r.financialTotal==null?null:Math.max(0,Math.round((r.financialTotal-r.paid)*100)/100);

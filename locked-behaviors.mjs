@@ -1,3 +1,4 @@
+import {securityCost} from './day-price.mjs?v=2.1.2';
 // Original page calculations/filter behavior, externalized for the SPA.
 export function mountLockedBehavior(screen, api, route, toast, record) {
 if (screen === 'bookings') {
@@ -280,7 +281,7 @@ if (screen === 'new-booking') {
         if (coversCheck.checked) total += api.intakeRates.covers;
         if (projectorCheck.checked) total += api.intakeRates.projector;
         if (audioCheck.checked) total += api.intakeRates.audio;
-        if (securityCheck.checked) total += api.intakeRates.security;
+        if (securityCheck.checked) { const hours = Number(document.getElementById('securityHours')?.value); total += hours > 0 ? securityCost(hours) : api.intakeRates.security; }
 
         const paid = parseFloat(initialPaidInput.value) || 0;
         const balance = Math.max(0, total - paid);

@@ -2,6 +2,14 @@
 // RULE: every change staff can notice adds an entry here and bumps the version (the footer number is CHANGELOG[0].version).
 // Write for staff, in plain words. Dates are YYYY-MM-DD (Chicago business date).
 export const CHANGELOG=[
+ {version:'2.1.2',date:'2026-11-18',title:'New booking and calendar fixes',items:[
+  'New booking now fills in the hall price for the event date you pick: Friday and Saturday $1,400, Sunday $1,200, Monday to Thursday $1,000, holidays $1,800. You can still change it, and a price you type yourself is never overwritten.',
+  'New booking now starts clean: no extras are ticked and the initial down payment is empty unless you enter an amount.',
+  'Security Guard: when you tick it, enter the hours needed. The cost is hours times $30 and it is added to the total (the booking also notes the hours).',
+  '"Chair & Table Covers" now reads "Extra Chair & Table Covers".',
+  'The Calendar\'s "Block a date" button now works: pick a date and say what it is for. Blocked dates can be moved or released later.',
+  'The Change date button on a booking is now the same size as the buttons beside it.'
+ ]},
  {version:'2.1.1',date:'2026-11-18',title:'Menu and update fixes',items:[
   'The "..." menu now closes when you scroll the page, so it never floats away from its row.',
   'After an update the app now always loads the newest files, which fixes pages (like the Calendar) that showed old or missing events until you cleared your browser data.'

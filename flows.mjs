@@ -1,16 +1,17 @@
-import {mountBookingActions,openBookingAction} from './booking-actions.mjs?v=2.1.1';
-import {bookingTransactions,transactionActions} from './transaction-actions.mjs?v=2.1.1';
-import {transactionSheet} from './transaction-sheet.mjs?v=2.1.1';
-import {warmDocuments} from './documents-lifecycle.mjs?v=2.1.1';
-import {contractAllowed,refreshContractCard} from './document-state.mjs?v=2.1.1';
-import {bookingRowBuilder,dueDate,rowVariant} from './booking-row.mjs?v=2.1.1';
-import {mountDocuments,contractSheet,downloadDocument,receiptRow,issueReceiptWithProgress} from './documents-ui.mjs?v=2.1.1';
+import {mountBookingActions,openBookingAction} from './booking-actions.mjs?v=2.1.2';
+import {bookingTransactions,transactionActions} from './transaction-actions.mjs?v=2.1.2';
+import {transactionSheet} from './transaction-sheet.mjs?v=2.1.2';
+import {warmDocuments} from './documents-lifecycle.mjs?v=2.1.2';
+import {contractAllowed,refreshContractCard} from './document-state.mjs?v=2.1.2';
+import {bookingRowBuilder,dueDate,rowVariant} from './booking-row.mjs?v=2.1.2';
+import {mountDocuments,contractSheet,downloadDocument,receiptRow,issueReceiptWithProgress} from './documents-ui.mjs?v=2.1.2';
 const rentalText=w=>!w?'—':typeof w==='string'?w:[w.start,w.end].map(t=>t==='00:00'?'Midnight':`${Number(t.slice(0,2))%12||12}:${t.slice(3)} ${Number(t.slice(0,2))<12?'AM':'PM'}`).join(' – ');
-import {commandSheet} from './command-sheet.mjs?v=2.1.1';
-import {readStates} from './read-states.mjs?v=2.1.1';
-import {mountLockedBehavior} from './locked-behaviors.mjs?v=2.1.1';
-import {money,balance} from './adapter.mjs?v=2.1.1';
-import {availableDay} from './calendar-parts.mjs?v=2.1.1';
+import {commandSheet} from './command-sheet.mjs?v=2.1.2';
+import {readStates} from './read-states.mjs?v=2.1.2';
+import {mountLockedBehavior} from './locked-behaviors.mjs?v=2.1.2';
+import {money,balance} from './adapter.mjs?v=2.1.2';
+import {availableDay} from './calendar-parts.mjs?v=2.1.2';
+import {dayPrice,securityCost,SECURITY_HOURLY} from './day-price.mjs?v=2.1.2';
 const $=id=>document.getElementById(id);
 const val=id=>$(id).value;
 const number=id=>Number(val(id));
@@ -137,15 +138,18 @@ export async function mountFlows({api,route,go,toast,closeSheet}){
    if(screen==='record-payment'){const paid=await api.commands('payment',route.id,{amount:number('paymentAmount'),date:val('paymentDate'),method:val('paymentMethod'),note:val('paymentNote')});go('#/booking/'+route.id);api.documents(route.id).then(async rows=>{const row=await receiptRow(rows,paid.payments.slice(-1)[0]?.id);return row&&row.status!=='saved'?[await issueReceiptWithProgress(api,route.id,row.id,toast)]:[];}).then(rows=>{if(rows.some(row=>row.status!=='saved'))toast('Payment saved. Saving in the background. It will appear in Saved copies in about 10-30 seconds.');if(document.body===mountBody)return;if(location.hash==='#/booking/'+route.id)mountDocuments(api,route.id,toast).catch(()=>{});}).catch(()=>toast('Payment saved. Saving in the background. It will appear in Saved copies in about 10-30 seconds.'));}
    if(screen==='edit-booking'){await api.commands('edit',route.id,{lines:linesFromForm(),reason:val('changeReason')});go('#/booking/'+route.id);}
    if(screen==='new-booking'){
-    const extras=standard.filter(n=>$('extra'+n).checked).map(n=>({key:n.toLowerCase(),label:n,amount:api.intakeRates[n.toLowerCase()]}));
+    const securityHours=Number($('securityHours')?.value),securityOn=$('extraSecurity').checked;
+    const extras=standard.filter(n=>$('extra'+n).checked).map(n=>({key:n.toLowerCase(),label:n,amount:n==='Security'?securityCost(securityHours):api.intakeRates[n.toLowerCase()]}));
     const total=api.priceLines({hall:number('newHallPrice'),extras,discount:0}).total;
-    const created=await api.createBooking({client:val('guestName'),phone:val('guestPhone'),date:val('eventDate'),type:val('eventType'),total,paid:number('initialPaid'),paymentDate:api.today,method:val('initialMethod'),...Object.fromEntries(standard.map(n=>[n.toLowerCase(),$('extra'+n).checked]))},{lines:{hall:number('newHallPrice'),extras,discount:0},depositStatus:val('depositStatus'),email:val('guestEmail'),guestCount:number('guestCount')});
+    const created=await api.createBooking({client:val('guestName'),phone:val('guestPhone'),date:val('eventDate'),type:val('eventType'),total,paid:number('initialPaid'),paymentDate:api.today,method:val('initialMethod'),...(securityOn?{notes:'Security guard: '+securityHours+' hrs @ $'+SECURITY_HOURLY+'/hr ($'+securityCost(securityHours).toFixed(2)+').'}:{}),...Object.fromEntries(standard.map(n=>[n.toLowerCase(),$('extra'+n).checked]))},{lines:{hall:number('newHallPrice'),extras,discount:0},depositStatus:val('depositStatus'),email:val('guestEmail'),guestCount:number('guestCount')});
     go('#/booking/'+created.id);
    }
   }catch(error){toast(error.message);if(api.mode==='http'){const state=readStates({states:await api.presentation('states')},()=>e.target.requestSubmit());const banner=state.show('error');e.target.prepend(banner);banner.querySelector('p').textContent=error.message;banner.querySelector('strong')?.replaceChildren(document.createTextNode(error.status===409?'Booking changed. Review the refreshed data before retrying.':'Unable to save. Your form values are kept.'));if(error.status===409){const current=await api.detail(route.id);r=current;banner.querySelector('p').textContent=error.message+' Latest agreed: '+money(current.financialTotal)+'; paid: '+money(current.paid)+'; balance: '+money(current.balance)+'. Review before retrying.';}}}
   finally{saving=false;if(submit)submit.disabled=false;}
  });
  document.body.addEventListener('click',async e=>{
+  const blockButton=e.target.closest('[data-action="calendar-0"]');
+  if(blockButton){try{await openBookingAction({api,id:null,action:'block',opener:blockButton,go});}catch(error){toast(error.message);}return;}
   const bookingAction=e.target.closest('[data-booking-action]');
   if(bookingAction){
    const {bookingId,bookingAction:action}=bookingAction.dataset;
@@ -179,8 +183,37 @@ export async function mountFlows({api,route,go,toast,closeSheet}){
  if(screen==='new-booking'){
   if(route.query.has('date'))$('eventDate').value=route.query.get('date');
   const check=async()=>{const taken=(await api.list()).some(r=>r.date===val('eventDate')&&!r.cancelled);$('dateCheckStatus').textContent=taken?'Date already booked or blocked':'Date available ✓';$('eventDate').setCustomValidity(taken?'This date is already booked or blocked.':'');return !taken;};
-  $('eventDate').addEventListener('change',check);
-  $('btnContinueStep2').addEventListener('click',async()=>{if(!await check()||!['guestName','guestPhone','guestEmail','eventDate'].every(id=>$(id).reportValidity())){$('step1Section').style.display='block';$('step2Section').style.display='none';}});
+  // The hall price follows the chosen day (Fri/Sat, Sunday, weekday, holiday). A price the user typed themselves is never overwritten.
+  const hall=$('newHallPrice');let hallEdited=false;
+  // Start clean. The locked mock-up carries demo numbers ($3,200 hall price, three ticked extras, a $1,000 down payment); a real booking starts empty
+  // and the hall price comes from the day. The down payment stays empty unless staff enter an amount.
+  hall.value='';$('initialPaid').value='';for(const n of ['Covers','Projector','Audio','Security'])$('extra'+n).checked=false;
+  hall.dispatchEvent(new Event('input',{bubbles:true}));
+  // Security guard: when ticked, ask for the hours. The cost is hours x $30/hr and the total follows.
+  const secCheck=$('extraSecurity'),secLabelEl=secCheck.closest('label'),secText=secLabelEl.querySelector('span');
+  const secRow=document.createElement('div');secRow.id='securityHoursRow';secRow.style.cssText='display:none;align-items:center;gap:8px;flex-wrap:wrap;padding-left:28px;';
+  const secCaption=document.createElement('label');secCaption.className='form-label';secCaption.htmlFor='securityHours';secCaption.style.margin='0';secCaption.textContent='Hours of security needed';
+  const secHours=document.createElement('input');secHours.type='number';secHours.id='securityHours';secHours.className='form-input';secHours.min='1';secHours.max='24';secHours.step='0.5';secHours.value='6';secHours.style.cssText='width:96px;min-height:var(--touch-target-min);';
+  const secTotal=document.createElement('span');secTotal.id='securityHoursTotal';secTotal.className='card-subtitle';
+  secRow.append(secCaption,secHours,secTotal);secLabelEl.after(secRow);
+  const usd=n=>'$'+n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const syncSecurity=()=>{
+   const on=secCheck.checked,h=Number(secHours.value),cost=securityCost(h);
+   secRow.style.display=on?'flex':'none';secHours.required=on;
+   secTotal.textContent='× '+usd(SECURITY_HOURLY)+'/hr = '+usd(cost);
+   secText.textContent='Security Guard ('+(h>0?h:'—')+' hrs @ $'+SECURITY_HOURLY+'/hr = +'+usd(cost)+')';
+   hall.dispatchEvent(new Event('input',{bubbles:true}));
+  };
+  secCheck.addEventListener('change',syncSecurity);secHours.addEventListener('input',syncSecurity);syncSecurity();
+  hall.addEventListener('input',e=>{if(e.isTrusted)hallEdited=true;});
+  const applyDayPrice=()=>{
+   const price=dayPrice(val('eventDate'));if(!price||hallEdited)return;
+   const next=price.hall.toFixed(2);if(hall.value===next)return;
+   hall.value=next;hall.dispatchEvent(new Event('input',{bubbles:true}));
+   toast('Hall price set to the '+price.label+' rate ($'+price.hall.toLocaleString('en-US',{minimumFractionDigits:2})+'). You can change it.');
+  };
+  $('eventDate').addEventListener('change',async()=>{if(await check())applyDayPrice();});
+  $('btnContinueStep2').addEventListener('click',async()=>{if(!await check()||!['guestName','guestPhone','guestEmail','eventDate'].every(id=>$(id).reportValidity())){$('step1Section').style.display='block';$('step2Section').style.display='none';return;}applyDayPrice();});
  }
  if(screen==='insights'){
   const initialData=await api.insights();

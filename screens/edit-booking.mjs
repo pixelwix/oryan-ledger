@@ -76,7 +76,7 @@ const markup = `
             <div class="standard-extra-row">
               <label class="form-checkbox-label">
                 <input type="checkbox" id="checkCovers" class="form-checkbox" checked>
-                <span>Chair &amp; Table Covers</span>
+                <span>Extra Chair &amp; Table Covers</span>
               </label>
               <input type="number" id="priceCovers" class="form-input" style="width: 100px; min-height: 36px; padding: 4px 8px;" value="{{v14}}" step="0.01">
             </div>
