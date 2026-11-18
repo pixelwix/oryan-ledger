@@ -2,6 +2,9 @@
 // RULE: every change staff can notice adds an entry here and bumps the version (the footer number is CHANGELOG[0].version).
 // Write for staff, in plain words. Dates are YYYY-MM-DD (Chicago business date).
 export const CHANGELOG=[
+ {version:'2.0.6',date:'2026-11-18',title:'Record payment button',items:[
+  'The Record payment buttons at the top of Bookings, Overview, Payments and Calendar now ask which booking to record the payment for (search by guest, phone or contract). Before, they opened an error.'
+ ]},
  {version:'2.0.5',date:'2026-11-17',title:'Hall capacity matches the contract',items:[
   'New booking: the hall capacity note now reads 153, the same as the maximum occupancy in the contract, and the guest count can be no more than 153.',
   'Insights: the year picker now lists every year that has bookings (not just 2026 and 2027), plus All-time overview.'
