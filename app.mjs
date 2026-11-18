@@ -66,7 +66,7 @@ document.addEventListener('click',e=>{
  const a=e.target.closest('a[href^="#/"]');if(a){
   const next=parseRoute(a.hash);
   if(['edit-booking','record-payment'].includes(next.screen)&&!['edit-booking','record-payment'].includes(activeRoute?.screen)){
-   returnHash=location.hash||'#/bookings';returnFocus=a.id?'#'+a.id:a.getAttribute('href')?'a[href="'+a.getAttribute('href')+'"]':null;
+   returnHash=location.hash||'#/overview';returnFocus=a.id?'#'+a.id:a.getAttribute('href')?'a[href="'+a.getAttribute('href')+'"]':null;
   }
   if(a.classList.contains('modal-close-btn')||a.closest('.modal-backdrop')&&a.textContent.trim()==='Cancel'){e.preventDefault();closeSheet();return;}
  }

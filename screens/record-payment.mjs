@@ -3,7 +3,7 @@ const markup = `
   <!-- Executive Top Bar -->
   <header class="app-header">
     <div class="header-inner">
-      <a href="#/bookings" class="brand-group">
+      <a href="#/overview" class="brand-group">
         <img src="assets/oryan-logo.png" alt="O'Ryan Logo" class="brand-logo-img">
         <div class="brand-text">
           <span class="brand-name">O’Ryan Event Center</span>
