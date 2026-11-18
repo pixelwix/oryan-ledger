@@ -2,6 +2,10 @@
 // RULE: every change staff can notice adds an entry here and bumps the version (the footer number is CHANGELOG[0].version).
 // Write for staff, in plain words. Dates are YYYY-MM-DD (Chicago business date).
 export const CHANGELOG=[
+ {version:'2.0.5',date:'2026-11-17',title:'Hall capacity matches the contract',items:[
+  'New booking: the hall capacity note now reads 153, the same as the maximum occupancy in the contract, and the guest count can be no more than 153.',
+  'Insights: the year picker now lists every year that has bookings (not just 2026 and 2027), plus All-time overview.'
+ ]},
  {version:'2.0.4',date:'2026-11-17',title:'Hall capacity',items:[
   'New booking: the hall capacity note now reads 150, and the guest count can be no more than 150.',
   'Six old test bookings were removed from the ledger.'

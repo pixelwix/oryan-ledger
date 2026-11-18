@@ -157,14 +157,15 @@ export async function mountFlows({api,route,go,toast,closeSheet}){
  }
  if(screen==='insights'){
   const initialData=await api.insights();
+  if(api.mode==='http'&&Array.isArray(initialData.years)){const sel=document.querySelector('select'),have=new Set([...sel.options].map(o=>o.value));for(const y of initialData.years){if(have.has(y))continue;const o=document.createElement('option');o.value=y;o.textContent='Year '+y;const after=[...sel.options].filter(x=>/^\d{4}$/.test(x.value)&&x.value<y).pop();if(after)after.after(o);else sel.insertBefore(o,sel.options[0]);have.add(y);}}
   const mixSamples=[...document.querySelectorAll('.bar-chart-container')].map(group=>group.querySelector('.bar-row').cloneNode(true));
   const applyInsights=async e=>{
    const data=await api.insights(e.target.value);if(document.body!==mountBody)return;const values=document.querySelectorAll('.stat-value');
    [data.charges,data.payments,data.balance].forEach((v,i)=>values[i].textContent=money(v));
    {const real=data.cohort==='ledger';document.querySelector('.stat-note').textContent=data.count+(real?' reservations':' fictional annual reservations');const lead=document.querySelector('.page-description');if(real&&lead)lead.textContent='Monthly value, booking counts, and celebration mix.';}
    document.querySelectorAll('.stat-note')[1].textContent=(data.charges?100*data.payments/data.charges:0).toFixed(1)+'% of total charges received';
-   document.querySelector('.stat-label').textContent='Agreed venue value ('+e.target.value+')';
-   document.querySelector('.v-chart').previousElementSibling.querySelector('h2').textContent='Bookings by Month ('+e.target.value+')';
+   const yl=e.target.value==='all'?'all years':e.target.value;document.querySelector('.stat-label').textContent='Agreed venue value ('+yl+')';
+   document.querySelector('.v-chart').previousElementSibling.querySelector('h2').textContent='Bookings by Month ('+yl+')';
    const peak=Math.max(...data.months);document.querySelector('.v-chart').previousElementSibling.querySelector('.badge').textContent=peak?'Peak month: '+new Date(2026,data.months.indexOf(peak),1).toLocaleDateString('en-US',{month:'long'})+' ('+money(peak)+')':'No reservations in this year';
    document.querySelectorAll('.v-bar-col').forEach((bar,i)=>{bar.querySelector('.v-bar-val').textContent='$'+(data.months[i]/1000).toFixed(1)+'k';bar.querySelector('.v-bar').style.height=(peak?100*data.months[i]/peak:0)+'%';});
    if(api.mode==='http'){
