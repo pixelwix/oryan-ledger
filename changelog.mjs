@@ -2,6 +2,9 @@
 // RULE: every change staff can notice adds an entry here and bumps the version (the footer number is CHANGELOG[0].version).
 // Write for staff, in plain words. Dates are YYYY-MM-DD (Chicago business date).
 export const CHANGELOG=[
+ {version:'2.1.3',date:'2026-11-18',title:'Security hours on Edit price',items:[
+  'Edit price now has the same Security Guard hours box as New booking: enter the hours and the amount is set to hours times $30. A booking that already has a security amount shows its hours.'
+ ]},
  {version:'2.1.2',date:'2026-11-18',title:'New booking and calendar fixes',items:[
   'New booking now fills in the hall price for the event date you pick: Friday and Saturday $1,400, Sunday $1,200, Monday to Thursday $1,000, holidays $1,800. You can still change it, and a price you type yourself is never overwritten.',
   'New booking now starts clean: no extras are ticked and the initial down payment is empty unless you enter an amount.',

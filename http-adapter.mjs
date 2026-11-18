@@ -1,7 +1,7 @@
-import {businessToday,localTodayOverride} from './business-date.mjs?v=2.1.2';
+import {businessToday,localTodayOverride} from './business-date.mjs?v=2.1.3';
 // HTTP is the sole data source in this adapter. Fixture adapter is presentation/price
 // helpers only; no read fallback and no Stage 3 command transport.
-import {createLedgerApi,balance} from './adapter.mjs?v=2.1.2';
+import {createLedgerApi,balance} from './adapter.mjs?v=2.1.3';
 export function localWorkerOrigin(value){const url=new URL(value);if(url.protocol!=='http:'||!['localhost','127.0.0.1','[::1]'].includes(url.hostname)||url.username||url.password||url.pathname!=='/'||url.search||url.hash)throw Error('Worker must be a loopback HTTP origin.');return url.origin;}
 export function hostedOrigin(value){const url=new URL(value);if(url.protocol!=='https:'||url.username||url.password||url.pathname!=='/'||url.search||url.hash)throw Error('Worker must be an exact https origin.');return url.origin;}
 export function createHttpLedgerApi(presentation,{origin,timeout=4000,retries=1,fetcher=fetch,onState=()=>{},auth=null,trustedOrigin=false,today,pageOrigin=globalThis.location?.origin,clock=()=>new Date()}){

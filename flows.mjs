@@ -1,17 +1,17 @@
-import {mountBookingActions,openBookingAction} from './booking-actions.mjs?v=2.1.2';
-import {bookingTransactions,transactionActions} from './transaction-actions.mjs?v=2.1.2';
-import {transactionSheet} from './transaction-sheet.mjs?v=2.1.2';
-import {warmDocuments} from './documents-lifecycle.mjs?v=2.1.2';
-import {contractAllowed,refreshContractCard} from './document-state.mjs?v=2.1.2';
-import {bookingRowBuilder,dueDate,rowVariant} from './booking-row.mjs?v=2.1.2';
-import {mountDocuments,contractSheet,downloadDocument,receiptRow,issueReceiptWithProgress} from './documents-ui.mjs?v=2.1.2';
+import {mountBookingActions,openBookingAction} from './booking-actions.mjs?v=2.1.3';
+import {bookingTransactions,transactionActions} from './transaction-actions.mjs?v=2.1.3';
+import {transactionSheet} from './transaction-sheet.mjs?v=2.1.3';
+import {warmDocuments} from './documents-lifecycle.mjs?v=2.1.3';
+import {contractAllowed,refreshContractCard} from './document-state.mjs?v=2.1.3';
+import {bookingRowBuilder,dueDate,rowVariant} from './booking-row.mjs?v=2.1.3';
+import {mountDocuments,contractSheet,downloadDocument,receiptRow,issueReceiptWithProgress} from './documents-ui.mjs?v=2.1.3';
 const rentalText=w=>!w?'—':typeof w==='string'?w:[w.start,w.end].map(t=>t==='00:00'?'Midnight':`${Number(t.slice(0,2))%12||12}:${t.slice(3)} ${Number(t.slice(0,2))<12?'AM':'PM'}`).join(' – ');
-import {commandSheet} from './command-sheet.mjs?v=2.1.2';
-import {readStates} from './read-states.mjs?v=2.1.2';
-import {mountLockedBehavior} from './locked-behaviors.mjs?v=2.1.2';
-import {money,balance} from './adapter.mjs?v=2.1.2';
-import {availableDay} from './calendar-parts.mjs?v=2.1.2';
-import {dayPrice,securityCost,SECURITY_HOURLY} from './day-price.mjs?v=2.1.2';
+import {commandSheet} from './command-sheet.mjs?v=2.1.3';
+import {readStates} from './read-states.mjs?v=2.1.3';
+import {mountLockedBehavior} from './locked-behaviors.mjs?v=2.1.3';
+import {money,balance} from './adapter.mjs?v=2.1.3';
+import {availableDay} from './calendar-parts.mjs?v=2.1.3';
+import {dayPrice,securityCost,SECURITY_HOURLY} from './day-price.mjs?v=2.1.3';
 const $=id=>document.getElementById(id);
 const val=id=>$(id).value;
 const number=id=>Number(val(id));
@@ -44,6 +44,22 @@ async function hydrateDetail(api,route){
   $('lineDiscountNote').value=lines.discountNote||'';
   $('lineHall').value=lines.hall.toFixed(2);$('lineDiscount').value=lines.discount.toFixed(2);
   standard.forEach(name=>{const line=lines.extras.find(e=>e.key===name.toLowerCase());$('check'+name).checked=!!line;$('price'+name).value=(line?.amount||0).toFixed(2);$('price'+name).disabled=!line;});
+  {
+   // Security guard hours: hours x $30/hr sets the amount, and an existing amount shows its hours. The amount can still be typed by hand.
+   // The hours sit on their own row under Security, laid out like the other extras rows, so the existing row is untouched.
+   const check=$('checkSecurity'),amount=$('priceSecurity'),row=check.closest('.standard-extra-row');
+   const hoursRow=row.cloneNode(false);
+   const caption=document.createElement('label');caption.className='form-checkbox-label';caption.htmlFor='priceSecurityHours';caption.style.paddingLeft='28px';
+   const captionText=document.createElement('span');captionText.textContent='Hours of security';caption.append(captionText);
+   const hours=document.createElement('input');hours.type='number';hours.id='priceSecurityHours';hours.className='form-input';hours.min='0.5';hours.max='24';hours.step='0.5';
+   hours.placeholder='Hours';hours.style.cssText='width: 100px; min-height: 36px; padding: 4px 8px;';
+   hoursRow.append(caption,hours);row.after(hoursRow);
+   const hoursFromAmount=()=>{const h=Number(amount.value)/SECURITY_HOURLY;return Number.isFinite(h)&&h>0&&Math.abs(h*2-Math.round(h*2))<1e-9?String(h):'';};
+   hours.value=check.checked?hoursFromAmount():'';hours.disabled=!check.checked;
+   hours.addEventListener('input',()=>{const cost=securityCost(hours.value);if(cost>0){amount.value=cost.toFixed(2);amount.dispatchEvent(new Event('input',{bubbles:true}));}});
+   amount.addEventListener('input',e=>{if(e.isTrusted)hours.value=hoursFromAmount();});
+   check.addEventListener('change',()=>{hours.disabled=!check.checked;if(check.checked&&!hours.value)hours.value=hoursFromAmount();});
+  }
   const custom=lines.extras.filter(e=>!e.key);const container=$('customExtrasContainer');const sample=container.firstElementChild.cloneNode(true);container.replaceChildren();
   for(const line of custom){const row=sample.cloneNode(true);row.querySelector('.custom-label').value=line.label;row.querySelector('.custom-amount').value=line.amount.toFixed(2);container.append(row);}
  }

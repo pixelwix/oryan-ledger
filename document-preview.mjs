@@ -1,4 +1,4 @@
-import {contractFields_} from './document-fields.mjs?v=2.1.2';
+import {contractFields_} from './document-fields.mjs?v=2.1.3';
 // Synthetic preview assets only; never a legal contract or payment receipt.
 export const previewPDF='%PDF-1.4\n% SYNTHETIC PREVIEW - NOT A CONTRACT OR RECEIPT\n%%EOF';
 export function previewDocuments(){return [
