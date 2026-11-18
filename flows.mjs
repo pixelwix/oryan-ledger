@@ -94,10 +94,29 @@ function linesFromForm(){return {hall:number('lineHall'),discount:number('lineDi
  ...standard.filter(n=>$('check'+n).checked).map(n=>({key:n.toLowerCase(),label:n,amount:number('price'+n)})),
  ...[...document.querySelectorAll('.custom-extra-row')].map(row=>({label:row.querySelector('.custom-label').value,amount:Number(row.querySelector('.custom-amount').value)}))
 ]};}
+function installPaymentPicker(api,go){
+ const generic='.page-actions a[href="#/booking/sophia/pay"],.header-actions a[href="#/booking/sophia/pay"],a.quick-action-card[href="#/booking/sophia/pay"]';
+ document.querySelectorAll(generic).forEach(a=>a.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();openPaymentPicker(api,go,a);},true));
+}
+function openPaymentPicker(api,go,opener){
+ const mk=(tag,attrs={},text)=>{const n=document.createElement(tag);for(const [k,v] of Object.entries(attrs))n.setAttribute(k,v);if(text!=null)n.textContent=text;return n;};
+ const backdrop=mk('div',{class:'modal-backdrop',id:'paymentPicker'}),dialog=mk('div',{class:'modal-dialog',role:'dialog','aria-modal':'true','aria-labelledby':'paymentPickerTitle'});
+ const header=mk('div',{class:'modal-header'}),body=mk('div',{class:'modal-body'}),actions=mk('div',{class:'modal-actions'});
+ header.append(mk('h2',{class:'modal-title',id:'paymentPickerTitle'},'Record payment for which booking?'));
+ const search=mk('input',{type:'search',class:'form-input',placeholder:'Search guest, phone or contract…','aria-label':'Search bookings'}),list=mk('div',{style:'margin-top:12px;max-height:320px;overflow:auto'}),cancel=mk('button',{type:'button',class:'btn btn-quiet'},'Cancel');
+ const finish=()=>{document.removeEventListener('keydown',key,true);backdrop.remove();opener.focus();};
+ const key=e=>{if(e.key==='Escape'){e.preventDefault();e.stopImmediatePropagation();finish();}};
+ let seq=0;
+ const load=async()=>{const mine=++seq,q=search.value.trim();let rows=await api.list(q?{q}:{});if(mine!==seq)return;rows=rows.filter(x=>!x.cancelled&&x.total!=null&&!(x.type==='Blackout')&&(q||x.balance>0)).slice(0,12);list.replaceChildren(...(rows.length?rows.map(x=>{const b=mk('button',{type:'button',class:'btn btn-quiet',style:'display:flex;width:100%;justify-content:space-between;margin-bottom:6px;text-align:left'});b.append(mk('span',{},(x.client||'')+' \u00b7 '+(x.date||'')),mk('span',{},'Balance '+money(x.balance)));b.onclick=()=>{finish();go('#/booking/'+encodeURIComponent(x.id)+'/pay');};return b;}):[mk('p',{},q?'No matching bookings.':'No bookings with a balance due.')]));};
+ let timer;search.addEventListener('input',()=>{clearTimeout(timer);timer=setTimeout(load,200);});
+ cancel.onclick=finish;backdrop.onclick=e=>{if(e.target===backdrop)finish();};
+ actions.append(cancel);body.append(search,list,actions);dialog.append(header,body);backdrop.append(dialog);document.body.append(backdrop);document.addEventListener('keydown',key,true);search.focus();load();
+}
 export async function mountFlows({api,route,go,toast,closeSheet}){
  if(route.screen==='record-payment')warmDocuments(api);
  const mountBody=document.body;
  const screen=route.screen;let r,saving=false;
+ if(api.mode==='http'&&['bookings','overview','payments','calendar'].includes(screen))installPaymentPicker(api,go);
  if(['booking','edit-booking','record-payment'].includes(screen))r=await hydrateDetail(api,route);
  if(screen==='overview')await mountOverview(api);
  if(screen==='payments')await mountPayments(api,toast,go);
