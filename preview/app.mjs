@@ -4,6 +4,7 @@ import {createHttpLedgerApi} from './http-adapter.mjs';
 import {readStates} from './read-states.mjs';
 import {createLedgerApi,money,balance} from './adapter.mjs';
 import {parseRoute} from './routes.mjs';
+import {CHANGELOG,VERSION} from './changelog.mjs';
 import {savedTheme,applyTheme,effectiveTheme,syncTheme} from './theme.mjs';
 import {mountFlows} from './flows.mjs';
 const presentation=await fetch('./presentation.json').then(r=>r.json());
@@ -53,7 +54,7 @@ export async function render(){
   ledgerApi.endRead?.();
   clearTimeout(loading);states.clear('loading');states.clear('error');
   if(workerOrigin&&navigator.onLine===false)states.show('offline');
-  if(auth&&me)signin.footer({email:me.actor,isOwner:me.isOwner});
+  if(auth&&me)signin.footer({email:me.actor,isOwner:me.isOwner,version:VERSION,notes:CHANGELOG});
   signin?.syncInert();
   document.documentElement.dataset.ready=route.screen;
  }catch(error){ledgerApi.endRead?.();clearTimeout(loading);states.clear('loading');if(error?.auth){gate().then(()=>render());return;}if(workerOrigin){states.show('error');document.documentElement.dataset.readError='true';}else toast(error.message);}

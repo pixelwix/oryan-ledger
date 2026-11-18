@@ -215,7 +215,7 @@ async function mountBookings(api){
  }
  mountBody.addEventListener('contract-saved',()=>{if(document.body===mountBody)update().catch(()=>edge?.show('error'));});
  $('sortSelect').addEventListener('change',update);$('bookingSearchInput').addEventListener('input',()=>update().catch(()=>edge?.show('error')));document.querySelectorAll('.filter-chip').forEach(chip=>chip.addEventListener('click',update));
- if(!canonical)await update();
+ if(!canonical){$('sortSelect').value='date-desc';await update();}
 }
 async function mountCalendar(api,go){
  const mountBody=document.body;
