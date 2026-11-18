@@ -253,7 +253,7 @@ async function mountCalendar(api,go){
   for(let i=0;i<offset;i++){const cell=document.createElement('div');cell.className='cal-day-cell';cell.setAttribute('aria-hidden','true');grid.append(cell);}
   const bookings=await api.calendar(year,month);for(let day=1;day<=new Date(year,month,0).getDate();day++){
    const cell=document.createElement('div');cell.className='cal-day-cell'+(`${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`===api.today?' is-today':'');cell.dataset.day=day;const n=document.createElement('span');n.className='cal-day-num';n.textContent=day;cell.append(n);
-   if(bookings.some(r=>Number(r.date.slice(-2))===day)){const dot=document.createElement('span');dot.className='cal-dot';cell.append(dot);}grid.append(cell);
+   const dayRows=bookings.filter(r=>Number(r.date.slice(-2))===day);if(dayRows.length){const pills=document.createElement('div');pills.className='cal-day-pills';for(const r of dayRows.slice(0,2)){const pill=document.createElement('span');const paid=r.type!=='Blackout'&&r.total!=null&&r.balance===0;pill.className='cal-event-micro-pill '+(r.type==='Blackout'?'blackout':paid?'paid':'due');pill.textContent=r.type==='Blackout'?'Blocked':String(r.client||r.guest||r.type||'Booked').split(' ')[0];pills.append(pill);}cell.append(pills);}grid.append(cell);
   }
  }
  document.body.addEventListener('click',async e=>{const cell=e.target.closest('[data-day]');if(cell?.tagName==='BUTTON'){const next=(await api.list()).find(r=>r.date>=api.today&&r.type!=='Blackout'&&!r.cancelled);if(next){year=Number(next.date.slice(0,4));month=Number(next.date.slice(5,7));await renderMonth();await select(Number(next.date.slice(-2)));}}else if(cell)await select(Number(cell.dataset.day));});
