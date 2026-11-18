@@ -68,7 +68,7 @@ export function createHttpLedgerApi(presentation,{origin,timeout=4000,retries=1,
   const batch=[{type:'create',values},{type:'edit',bookingId:'$created',values:{...Object.fromEntries(fields.filter(k=>values[k]!==undefined).map(k=>[k,values[k]])),contract:'',lines:metadata.lines,reason:'Initial itemized price'}}];
   // Contract and revision are resolved from the newly created record inside the transaction.
   batch[1].values.contract='$created';
-  if(metadata.depositStatus==='Held')batch.push({type:'deposit',bookingId:'$created',values:{kind:'receive',amount:300,date:getToday(),method:values.method,reason:'Initial refundable deposit'}});
+  if(metadata.depositStatus==='Held')batch.push({type:'deposit',bookingId:'$created',values:{kind:'receive',amount:600,date:getToday(),method:values.method,reason:'Initial refundable deposit'}});
   if(metadata.depositStatus==='Waived')batch.push({type:'waiveDeposit',bookingId:'$created',values:{reason:metadata.waiverReason||''}});
   const made=await save({type:'batch',commands:batch});return {...made,balance:balance(made)};
  }

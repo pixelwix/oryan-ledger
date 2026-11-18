@@ -64,7 +64,7 @@ export function createLedgerApi(presentation,initial=seed){
    try{
     const made=commands('create',null,{...values,...Object.fromEntries(['email','guestCount','rentalWindow'].filter(k=>metadata[k]!==undefined).map(k=>[k,metadata[k]]))});
     commands('edit',made.id,{lines:metadata.lines,reason:'Initial fictional itemized price'});
-    if(metadata.depositStatus==='Held')commands('deposit',made.id,{kind:'receive',amount:300,date:initial.TODAY,method:values.method,reason:'Initial fictional refundable deposit'});
+    if(metadata.depositStatus==='Held')commands('deposit',made.id,{kind:'receive',amount:600,date:initial.TODAY,method:values.method,reason:'Initial fictional refundable deposit'});
     if(metadata.depositStatus==='Waived')commands('waiveDeposit',made.id,{reason:metadata.waiverReason||''});return detail(made.id);
    }catch(error){state=previous;sequence=previousSequence;throw error;}
   },
