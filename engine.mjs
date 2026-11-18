@@ -1,3 +1,120 @@
+/* Shared validation and money rules, also shipped to Google Apps Script. */
+const Ledger = (() => {
+  const types = ['Wedding', 'Birthday', 'Baby Shower', 'Bridal Shower', 'Graduation', 'Engagement', 'Business', 'Quinceañera', 'Baptism', 'Blackout', 'Other'];
+  const methods = ['Cash', 'Card', 'Zelle', 'CashApp', 'Venmo', 'Check', 'Other'];
+  const deposits = ['Unknown', 'Owed', 'Not Refunded', 'Refunded'];
+  function text(value, limit = 500) { return String(value == null ? '' : value).trim().slice(0, limit); }
+  function cents(value, maximum = 1000000) {
+    if (typeof value !== 'number' && (typeof value !== 'string' || !/^\d+(\.\d{1,2})?$/.test(value.trim()))) throw Error('Enter a valid amount with no more than two decimal places.');
+    const n = Number(value);
+    if (!Number.isFinite(n) || n < 0 || n > maximum || Math.abs(n * 100 - Math.round(n * 100)) > 0.00001) throw Error('Enter an amount between $0 and $1,000,000 with no more than two decimals.');
+    return Math.round(n * 100);
+  }
+  function date(value, optional = false) {
+    if (optional && !value) return '';
+    if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) throw Error('Choose a valid date.');
+    const d = new Date(value + 'T12:00:00Z');
+    if (!Number.isFinite(+d) || d.toISOString().slice(0, 10) !== value || +value.slice(0, 4) < 1900 || +value.slice(0, 4) > 2100) throw Error('Choose a valid date between 1900 and 2100.');
+    return value;
+  }
+  function booking(input) {
+    if (!input || typeof input !== 'object') throw Error('Booking details are required.');
+    const client = text(input.client, 150), total = cents(input.total), paid = cents(input.paid);
+    if (!client) throw Error('Enter the guest’s name.');
+    if (!types.includes(input.type)) throw Error('Choose an event type.');
+    if (paid > total) throw Error('The initial event payment cannot exceed the agreed price. Track security deposits separately.');
+    if (paid && !methods.includes(input.method)) throw Error('Choose a payment method.');
+    const eventDate = date(input.date), due = date(input.due, true);
+    if (due && due > eventDate) throw Error('The balance due date must be on or before the event.');
+    const isAudio = input.audio === true || input.sound === true;
+    const isCovers = input.covers === true || /covers\+/i.test(input.notes || '');
+    const isProjector = input.projector === true || /projector/i.test(input.notes || '');
+    let notes = text(input.notes, 2000);
+    const extraTags = [];
+    if (input.covers === true && !/covers\+/i.test(notes)) extraTags.push('Covers+');
+    if (input.projector === true && !/projector/i.test(notes)) extraTags.push('Projector');
+    if (extraTags.length) {
+      notes = notes ? `${notes}\nExtras: ${extraTags.join(', ')}` : `Extras: ${extraTags.join(', ')}`;
+    }
+    return { client, phone: text(input.phone, 40), contract: text(input.contract, 60), type: input.type, date: eventDate, total: total / 100, paid: paid / 100,
+      paymentDate: paid ? date(input.paymentDate) : '', method: paid ? input.method : '', due, deposit: deposits.includes(input.deposit) ? input.deposit : 'Unknown',
+      covers: isCovers, projector: isProjector, audio: isAudio, bar: input.bar === true, sound: isAudio, security: input.security === true, notes };
+  }
+  function payment(input, record) {
+    if (!input || !record) throw Error('Choose a booking.');
+    if (record.cancelled && !record.beta) throw Error('This booking is cancelled. New payments cannot be recorded.');
+    const charge=record.beta?record.financialTotal:record.total;
+    if (charge == null) throw Error('Enter the agreed price in Oryan Bookings before recording another payment.');
+    const amount = cents(input.amount), remaining = Math.max(0, Math.round((charge - record.paid) * 100));
+    if (amount <= 0) throw Error('Enter a payment greater than $0.');
+    if (amount > remaining) throw Error('This payment exceeds the remaining event balance. Refresh the booking or track a security deposit separately.');
+    if (!methods.includes(input.method)) throw Error('Choose a payment method.');
+    return { amount: amount / 100, date: date(input.date), method: input.method, note: text(input.note, 500) };
+  }
+  const balance = r => {const charge=r.beta?r.financialTotal:r.total;return charge==null?0:Math.max(0,Math.round((charge-r.paid)*100)/100);};
+  const review = r => (r.beta?r.financialTotal:r.total) == null || (!(r.beta&&r.reconciliation?.resolved) && ( (r.imported && r.sheetBalance == null) || Math.abs(r.importedDifference || 0) > .005));
+  const extrasList = r => [r.covers ? 'Covers+' : '', r.projector ? 'Projector' : '', (r.audio || r.sound) ? 'Audio' : '', r.bar ? 'Bar' : '', r.security ? 'Security' : ''].filter(Boolean).concat((r.lines?.extras||[]).filter(e=>!e.key).map(e=>e.label));
+  const extraRates = {covers:200,projector:100,audio:100,bar:0,security:30};
+  const extraLabels = {covers:'Covers+',projector:'Projector',audio:'Audio',bar:'Bar',security:'Security'};
+  function priceLines(value) {
+    const object=(v,keys)=>{if(!v||typeof v!=='object'||Array.isArray(v)||Object.keys(v).some(k=>!keys.includes(k)))throw Error('Unexpected price breakdown fields.');};
+    object(value,['hall','extras','discount','discountNote']);
+    if(!Array.isArray(value.extras)||value.extras.length>10)throw Error('Choose at most 10 extras.');
+    const seen=new Set();let subtotal=cents(value.hall);
+    const extras=value.extras.map(e=>{
+      object(e,['key','label','amount']);
+      if(e.key!==undefined&&(!Object.hasOwn(extraRates,e.key)||seen.has(e.key)))throw Error('Choose each standard extra only once.');
+      if(typeof e.label!=='string'||!e.label.trim()||e.label.trim().length>60||/[\x00-\x1f\x7f-\x9f]/.test(e.label))throw Error('Extra names must be 1–60 characters without control characters.');
+      if(e.key!==undefined)seen.add(e.key);
+      const n=cents(e.amount);subtotal+=n;
+      return {...(e.key!==undefined?{key:e.key}:{}),label:e.key!==undefined?extraLabels[e.key]:e.label.trim(),amount:n/100};
+    });
+    const discount=cents(value.discount);
+    if(discount>subtotal)throw Error('Discount cannot exceed the price before discount.');
+    if(value.discountNote!==undefined&&(typeof value.discountNote!=='string'||value.discountNote.length>500||/[\x00-\x1f\x7f-\x9f]/.test(value.discountNote)))throw Error('Enter a discount note of at most 500 characters without control characters.');
+    const total=(subtotal-discount)/100;
+    return {lines:{hall:cents(value.hall)/100,extras,discount:discount/100,...(value.discountNote?.trim()?{discountNote:value.discountNote.trim()}:{})},total};
+  }
+  function editLines(r) {
+    if(r.lines)return JSON.parse(JSON.stringify(r.lines));
+    const extras=Object.keys(extraRates).filter(k=>r[k]||(k==='audio'&&r.sound)).map(key=>({key,label:extraLabels[key],amount:extraRates[key]}));
+    const sum=extras.reduce((n,e)=>n+cents(e.amount),0),saved=r.total==null?0:cents(r.total);
+    return {hall:Math.max(0,saved-sum)/100,extras,discount:Math.max(0,sum-saved)/100,...(sum>saved?{discountNote:'Adjustment'}:{})};
+  }
+  function lineChanges(before,after) {
+    const flatten=l=>Object.fromEntries([['Hall',l.hall],...l.extras.map((e,i)=>['Extra '+(e.key||('custom '+l.extras.slice(0,i).filter(p=>!p.key&&p.label===e.label).length))+': '+e.label,e.amount]),['Discount',l.discount],['Discount note',l.discountNote||'']]);
+    const a=flatten(before),b=flatten(after);
+    return [...new Set([...Object.keys(a),...Object.keys(b)])].filter(k=>a[k]!==b[k]).map(field=>({field,before:a[field]??'Not included',after:b[field]??'Removed'}));
+  }
+  // Pure cents-based suggestion. Stored agreed prices are never recalculated here.
+  function pricing(value, extras = {}) {
+    if (extras.type === 'Blackout' || !value) return null;
+    const d = new Date(value + 'T12:00:00Z');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isFinite(+d) || d.toISOString().slice(0, 10) !== value) throw Error('Choose a valid date.');
+    const year = d.getUTCFullYear(), weekday = d.getUTCDay();
+    const utc = (month, day) => { const result = new Date(0); result.setUTCFullYear(year, month - 1, day); return result; };
+    const nth = (month, day, n) => utc(month, 1 + (day - utc(month, 1).getUTCDay() + 7) % 7 + 7 * (n - 1)).toISOString().slice(5, 10);
+    const memorial = utc(6, 0);
+    memorial.setUTCDate(memorial.getUTCDate() - (memorial.getUTCDay() + 6) % 7);
+    // Actual dates only; there are no observed-weekday substitutions.
+    const holidays = {
+      '01-01': "New Year's Day", [nth(1, 1, 3)]: 'Martin Luther King Jr. Day',
+      [nth(2, 1, 3)]: "Presidents' Day", [memorial.toISOString().slice(5, 10)]: 'Memorial Day',
+      '06-19': 'Juneteenth', '07-04': 'Independence Day', [nth(9, 1, 1)]: 'Labor Day',
+      [nth(10, 1, 2)]: 'Columbus Day', '11-11': 'Veterans Day', [nth(11, 4, 4)]: 'Thanksgiving', '12-25': 'Christmas Day'
+    };
+    const rates = {weekend:140000, sunday:120000, weekday:100000, holiday:180000, covers:20000, audio:10000, projector:10000, security:3000};
+    const holiday = holidays[value.slice(5)] || '';
+    const hallCents = holiday ? rates.holiday : weekday === 5 || weekday === 6 ? rates.weekend : weekday === 0 ? rates.sunday : rates.weekday;
+    const parts = [{label: holiday || ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][weekday] + ' rate', cents: hallCents}];
+    for (const [key, label] of [['covers', 'Table Covers'], ['audio', 'Sound'], ['projector', 'Projector']]) {
+      if (extras[key] || (key === 'audio' && extras.sound)) parts.push({label, cents: rates[key]});
+    }
+    return {rates, holiday, hallCents, totalCents: parts.reduce((sum, part) => sum + part.cents, 0), parts, securityHourlyCents: rates.security};
+  }
+  return { priceLines, editLines, lineChanges, extraRates, extraLabels, pricing, types, methods, deposits, text, cents, date, booking, payment, balance, review, extrasList };
+})();
+
 /* Shared beta rules. Append-only commands; no network, clock, storage or Google dependencies. */
 const BetaLedger = (() => {
   const clone = value => JSON.parse(JSON.stringify(value));
@@ -6,6 +123,14 @@ const BetaLedger = (() => {
   const statuses = ['Not prepared','Prepared','Signed','Received'];
   const reason = v => { const s=Ledger.text(v,500);if(!s)throw Error('Enter a reason for this change.');return s; };
   const allowed = (v,keys) => { if(!v||typeof v!=='object'||Array.isArray(v)||Object.keys(v).some(k=>!keys.includes(k)))throw Error('Unexpected fields. Reopen the form and try again.'); };
+  // Optional fields are emitted only when supplied, preserving legacy JSON bytes.
+  function bookingExtras(v) {
+    const out={};
+    if(v.email!==undefined){if(typeof v.email!=='string'||v.email.length>254)throw Error('Invalid email.');const email=v.email.trim().toLowerCase();if(email.length>254||/[\x00-\x1f\x7f<>]/.test(email)||email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw Error('Invalid email.');out.email=email;}
+    if(v.guestCount!==undefined){if(!Number.isInteger(v.guestCount)||v.guestCount<0||v.guestCount>300)throw Error('Invalid guestCount.');out.guestCount=v.guestCount;}
+    if(v.rentalWindow!==undefined){const w=v.rentalWindow;allowed(w,['start','end','setupMinutes']);const time=t=>typeof t==='string'&&/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(t);if(!time(w.start)||!time(w.end)||w.start===w.end||w.setupMinutes!==undefined&&(!Number.isInteger(w.setupMinutes)||w.setupMinutes<0||w.setupMinutes>1440))throw Error('Invalid rentalWindow.');out.rentalWindow={start:w.start,end:w.end,...(w.setupMinutes!==undefined?{setupMinutes:w.setupMinutes}:{})};}
+    return out;
+  }
   function derive(input) {
     const r=clone(input);r.beta=true;r.revision=r.revision||0;
     r.payments=r.payments||[];r.refunds=r.refunds||[];r.voids=r.voids||[];r.depositTransactions=r.depositTransactions||[];r.activity=r.activity||[];
@@ -56,10 +181,10 @@ const BetaLedger = (() => {
     const previous=state.records.find(b=>b.id===cmd.bookingId);
     let r=next.records.find(b=>b.id===cmd.bookingId);if(r)r=derive(r);
     if(cmd.type==='create') {
-      allowed(v,['client','phone','contract','type','date','total','paid','paymentDate','method','due','deposit','covers','projector','audio','sound','bar','security','notes']);
+      allowed(v,['client','phone','contract','type','date','total','paid','paymentDate','method','due','deposit','covers','projector','audio','sound','bar','security','notes','email','guestCount','rentalWindow']);
       const clean=Ledger.booking(v);if(clean.type==='Blackout'&&clean.total!==0)throw Error('Blocked dates do not have a price.');checkDate(next.records,{id:meta.id},clean.date);
       if(clean.contract&&next.records.some(b=>b.contract.toLowerCase()===clean.contract.toLowerCase()))throw Error('That contract number is already in the ledger.');
-      r=derive({...clean,id:meta.id,contract:clean.contract||'O-'+meta.id.slice(0,8).toUpperCase(),openingPaid:clean.paid,openingDate:clean.paymentDate,openingMethod:clean.method,imported:false,sheetBalance:null,importedDifference:0,createdAt:meta.at,payments:[],revision:0});
+      r=derive({...clean,...bookingExtras(v),id:meta.id,contract:clean.contract||'O-'+meta.id.slice(0,8).toUpperCase(),openingPaid:clean.paid,openingDate:clean.paymentDate,openingMethod:clean.method,imported:false,sheetBalance:null,importedDifference:0,createdAt:meta.at,payments:[],revision:0});
       next.records.push(r);
     } else {
       if(!r)throw Error('That booking is no longer available. Refresh the beta.');
@@ -67,7 +192,7 @@ const BetaLedger = (() => {
       if(r.type==='Blackout'&&!['edit','cancel','release','restore'].includes(cmd.type))throw Error('Money and contracts are not available for blocked dates.');
       switch(cmd.type) {
         case 'edit': {
-          allowed(v,['client','phone','contract','type','date','total','due','covers','projector','audio','bar','security','notes','reason','lines']);reason(v.reason);
+          allowed(v,['client','phone','contract','type','date','total','due','covers','projector','audio','bar','security','notes','reason','lines','email','guestCount','rentalWindow']);reason(v.reason);
           if(r.cancelled)throw Error('Restore the booking before editing it.');
           if(r.type==='Blackout'&&v.type!=='Blackout'||r.type!=='Blackout'&&v.type==='Blackout')throw Error('Release or create a blocked date separately.');
           const priced=v.lines!==undefined?Ledger.priceLines(v.lines):null;
@@ -75,6 +200,7 @@ const BetaLedger = (() => {
           const clean=Ledger.booking({...v,total:priced?0:v.total===''?0:v.total,paid:0});if(clean.type==='Blackout'&&clean.total!==0)throw Error('Blocked dates do not have a price.');if(clean.date!==r.date)checkDate(next.records,r,clean.date);
           if(!clean.contract||next.records.some(b=>b.id!==r.id&&b.contract.toLowerCase()===clean.contract.toLowerCase()))throw Error('Enter a unique contract number.');
           ['client','phone','contract','type','date','due','covers','projector','audio','sound','bar','security','notes'].forEach(k=>r[k]=clean[k]);
+          Object.assign(r,bookingExtras(v));
           r.total=priced?priced.total:v.total===''?null:clean.total;
           if(priced)r.lines=priced.lines;else if(r.lines)delete r.lines;
           // Explicit beta extras may be cleared even when an imported note mentions them.
@@ -145,6 +271,11 @@ const BetaLedger = (() => {
           if(!statuses.includes(v.status))throw Error('Choose a contract status.');
           r.contractStatus=v.status;r.contractStatusDate=Ledger.date(v.date);break;
         }
+        case 'waiveDeposit': {
+          allowed(v,['reason']);
+          if(r.depositWaiver)throw Error('Deposit is already waived.');
+          r.depositWaiver={createdBy:meta.actor,createdAt:meta.at,reason:Ledger.text(v.reason,500)};break;
+        }
         case 'markSettled': {
           allowed(v,['reason','cutoff']);reason(v.reason);const cutoff=Ledger.date(v.cutoff);
           if(r.settled)throw Error('This booking is already marked settled.');
@@ -158,7 +289,7 @@ const BetaLedger = (() => {
       }
     }
     if(previous&&(['cancel','restore'].includes(cmd.type)||(['edit','reconcile'].includes(cmd.type)&&['client','phone','contract','type','date','total',...(v.lines!==undefined&&JSON.stringify(previous.lines)!==JSON.stringify(r.lines)?['lines']:[]),'covers','projector','audio','bar','security'].some(k=>previous[k]!==r[k])))){r.contractStatus='Not prepared';r.contractStatusDate='';}
-    r.revision++;r.activity.push({type:cmd.type,at:meta.at,actor:meta.actor,reason:Ledger.text(v.reason||v.note,500),changes:[...(cmd.type==='edit'&&v.lines!==undefined?Ledger.lineChanges(Ledger.editLines(previous),r.lines):[]),...Object.keys(v).filter(k=>k!=='reason'&&!(cmd.type==='edit'&&v.lines!==undefined&&k==='lines')).map(k=>({field:k,before:previous?.[k]??'',after:k in r?r[k]:v[k]})),...(previous&&previous.contractStatus!==r.contractStatus?[{field:'contractStatus',before:previous.contractStatus,after:r.contractStatus}]:[])]});
+    r.revision++;r.activity.push({type:cmd.type,at:meta.at,actor:meta.actor,reason:Ledger.text(v.reason||v.note,500),changes:[...(cmd.type==='waiveDeposit'?[{field:'depositWaiver',before:previous?.depositWaiver??'',after:r.depositWaiver}]:[]),...(cmd.type==='edit'&&v.lines!==undefined?Ledger.lineChanges(Ledger.editLines(previous),r.lines):[]),...Object.keys(v).filter(k=>k!=='reason'&&!(cmd.type==='edit'&&v.lines!==undefined&&k==='lines')).map(k=>({field:k,before:previous?.[k]??'',after:k in r?r[k]:v[k]})),...(previous&&previous.contractStatus!==r.contractStatus?[{field:'contractStatus',before:previous.contractStatus,after:r.contractStatus}]:[])]});
     next.records[next.records.findIndex(b=>b.id===r.id)]=derive(r);
     return next;
   }
@@ -201,3 +332,5 @@ const BetaLedger = (() => {
   }
   return {initial,derive,apply,execute,summary,report,receipt,statuses,dueDate,reminders,reminderText};
 })();
+
+export {Ledger, BetaLedger as engine};
