@@ -1,7 +1,7 @@
-import {businessToday,localTodayOverride} from './business-date.mjs';
+import {businessToday,localTodayOverride} from './business-date.mjs?v=2.1.1';
 // HTTP is the sole data source in this adapter. Fixture adapter is presentation/price
 // helpers only; no read fallback and no Stage 3 command transport.
-import {createLedgerApi,balance} from './adapter.mjs';
+import {createLedgerApi,balance} from './adapter.mjs?v=2.1.1';
 export function localWorkerOrigin(value){const url=new URL(value);if(url.protocol!=='http:'||!['localhost','127.0.0.1','[::1]'].includes(url.hostname)||url.username||url.password||url.pathname!=='/'||url.search||url.hash)throw Error('Worker must be a loopback HTTP origin.');return url.origin;}
 export function hostedOrigin(value){const url=new URL(value);if(url.protocol!=='https:'||url.username||url.password||url.pathname!=='/'||url.search||url.hash)throw Error('Worker must be an exact https origin.');return url.origin;}
 export function createHttpLedgerApi(presentation,{origin,timeout=4000,retries=1,fetcher=fetch,onState=()=>{},auth=null,trustedOrigin=false,today,pageOrigin=globalThis.location?.origin,clock=()=>new Date()}){
@@ -72,8 +72,8 @@ export function createHttpLedgerApi(presentation,{origin,timeout=4000,retries=1,
   if(metadata.depositStatus==='Waived')batch.push({type:'waiveDeposit',bookingId:'$created',values:{reason:metadata.waiverReason||''}});
   const made=await save({type:'batch',commands:batch});return {...made,balance:balance(made)};
  }
- async function list({q='',filter='all',sort='date',from='',to=''}={}){
-  let rows=(await get('/bookings',{q:q.trim()||undefined,from:from||undefined,to:to||undefined})).records.map(normalize);
+ async function list({q='',filter='all',sort='date',from='',to='',archived=''}={}){
+  let rows=(await get('/bookings',{q:q.trim()||undefined,from:from||undefined,to:to||undefined,archived:archived||undefined})).records.map(normalize);
   rows=rows.filter(r=>filter==='all'||filter==='due'&&r.balance>0&&!r.cancelled||filter==='attention'&&(r.flags?.needsPrice||r.importedDifference||r.due&&r.due<getToday()&&r.balance>0||r.date<getToday()&&r.type!=='Blackout'||r.flags?.depositHeld)&&!r.settled||filter==='upcoming'&&r.date>=getToday()&&!r.cancelled||filter==='past'&&r.date<getToday()||filter==='cancelled'&&r.cancelled||filter==='settled'&&r.settled);
   return rows.sort(sort==='guest'?(a,b)=>a.client.localeCompare(b.client):sort==='balance'?(a,b)=>(b.balance||0)-(a.balance||0):(a,b)=>a.date.localeCompare(b.date));
  }

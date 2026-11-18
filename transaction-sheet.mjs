@@ -1,7 +1,7 @@
-import paymentScreen from './screens/record-payment.mjs';
-import {readStates} from './read-states.mjs';
-import {transactionActions,transactionCommand} from './transaction-actions.mjs';
-import {issueReceiptWithProgress,mountDocuments} from './documents-ui.mjs';
+import paymentScreen from './screens/record-payment.mjs?v=2.1.1';
+import {readStates} from './read-states.mjs?v=2.1.1';
+import {transactionActions,transactionCommand} from './transaction-actions.mjs?v=2.1.1';
+import {issueReceiptWithProgress,mountDocuments} from './documents-ui.mjs?v=2.1.1';
 const opening=new WeakSet();
 export async function transactionSheet({api,id,transactionId,action,toast,go,opener}){
  if(opening.has(api)||document.getElementById('transactionModal'))return;

@@ -2,6 +2,14 @@
 // RULE: every change staff can notice adds an entry here and bumps the version (the footer number is CHANGELOG[0].version).
 // Write for staff, in plain words. Dates are YYYY-MM-DD (Chicago business date).
 export const CHANGELOG=[
+ {version:'2.1.1',date:'2026-11-18',title:'Menu and update fixes',items:[
+  'The "..." menu now closes when you scroll the page, so it never floats away from its row.',
+  'After an update the app now always loads the newest files, which fixes pages (like the Calendar) that showed old or missing events until you cleared your browser data.'
+ ]},
+ {version:'2.1.0',date:'2026-11-18',title:'Change dates and archive cancellations',items:[
+  'Move a booking or a blocked date without changing the price or payments. Saved contracts keep the old date.',
+  'Archive cancelled bookings with no remaining charge or credit to clear them from Bookings and Needs attention. Open Archived to bring them back.'
+ ]},
  {version:'2.0.6',date:'2026-11-18',title:'Record payment button',items:[
   'The Record payment buttons at the top of Bookings, Overview, Payments and Calendar now ask which booking to record the payment for (search by guest, phone or contract). Before, they opened an error.'
  ]},

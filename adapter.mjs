@@ -1,8 +1,8 @@
-import {fixtureDocuments} from './document-preview.mjs';
+import {fixtureDocuments} from './document-preview.mjs?v=2.1.1';
 // In-memory synthetic adapter; optional contact and rental fields live in engine records.
-import seed from './fixtures.mjs';
-import {displayMetadata} from './display-fixtures.mjs';
-import {engine,Ledger} from './engine.mjs';
+import seed from './fixtures.mjs?v=2.1.1';
+import {displayMetadata} from './display-fixtures.mjs?v=2.1.1';
+import {engine,Ledger} from './engine.mjs?v=2.1.1';
 const clone=v=>JSON.parse(JSON.stringify(v));
 export const money=n=>'$'+Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 export const balance=r=>r.financialTotal==null?null:Math.max(0,Math.round((r.financialTotal-r.paid)*100)/100);
@@ -10,17 +10,19 @@ export function createLedgerApi(presentation,initial=seed){
  const normalized=clone(initial.bookings).map(r=>({...r,id:r.id.split('#')[0]}));
  let state=engine.initial(normalized),sequence=0;
  const original=engine.initial(normalized).records;
+ const needsPrice=r=>r.type!=='Blackout'&&(r.cancelled?r.financialTotal:r.total)==null;
  const intakeRates={...Ledger.extraRates,security:180};
  const detail=id=>{const r=state.records.find(r=>r.id===id);if(!r)throw Error('Booking not found.');return clone({...r,...displayMetadata[id],balance:balance(r)});};
- function list({q='',filter='all',sort='date',from='',to=''}={}){
+ function list({q='',filter='all',sort='date',from='',to='',archived=''}={}){
   const query=q.trim().toLowerCase();
-  let rows=state.records.filter(r=>!query||[r.client,r.phone,r.contract].join(' ').toLowerCase().includes(query));
+  if(archived==='1'&&(query||from||to))throw Error('The Archived view cannot be combined with search or a date range.');
+  let rows=state.records.filter(r=>Boolean(r.archived)===(archived==='1')&&(!query||[r.client,r.phone,r.contract].join(' ').toLowerCase().includes(query)));
   if(from)rows=rows.filter(r=>r.date>=from);if(to)rows=rows.filter(r=>r.date<=to);
-  rows=rows.filter(r=>filter==='all'||filter==='due'&&balance(r)>0&&!r.cancelled||filter==='attention'&&(r.total==null||r.importedDifference||r.due&&r.due<initial.TODAY&&balance(r)>0||r.date<initial.TODAY&&r.type!=='Blackout'||r.depositHeld>0)&&!r.settled||filter==='upcoming'&&r.date>=initial.TODAY&&!r.cancelled||filter==='past'&&r.date<initial.TODAY||filter==='cancelled'&&r.cancelled||filter==='settled'&&r.settled);
+  rows=rows.filter(r=>filter==='all'||filter==='due'&&balance(r)>0&&!r.cancelled||filter==='attention'&&(needsPrice(r)||r.importedDifference||r.due&&r.due<initial.TODAY&&balance(r)>0||r.date<initial.TODAY&&r.type!=='Blackout'||r.depositHeld>0)&&!r.settled||filter==='upcoming'&&r.date>=initial.TODAY&&!r.cancelled||filter==='past'&&r.date<initial.TODAY||filter==='cancelled'&&r.cancelled||filter==='settled'&&r.settled);
   if(sort==='date')rows.sort((a,b)=>a.date.localeCompare(b.date));
   if(sort==='guest')rows.sort((a,b)=>a.client.localeCompare(b.client));
   if(sort==='balance')rows.sort((a,b)=>(balance(b)||0)-(balance(a)||0));
-  return clone(rows.map(r=>({...r,balance:balance(r),hasReceipts:documentApi.hasReceipts(r.id)})));
+  return clone(rows.map(r=>({...r,balance:balance(r),...(r.archived?{archivedAt:r.archived.at}:{}),hasReceipts:documentApi.hasReceipts(r.id)})));
  }
  function payments({q='',kind='all',method='all'}={}){
   return state.records.flatMap(r=>[
@@ -29,7 +31,7 @@ export function createLedgerApi(presentation,initial=seed){
   ].map(t=>({...t,voided:r.voids.some(v=>v.targetId===t.id),bookingId:r.id,client:r.client,contract:r.contract,eventType:r.type,displayClient:displayMetadata[r.id]?.registerGuest,reference:displayMetadata[r.id]?.registerReferences?.[t.id]}))).filter(t=>(kind==='all'||kind===t.kind)&&(method==='all'||t.method===method)&&(!q||[t.client,t.contract,t.note,t.method].join(' ').toLowerCase().includes(q.toLowerCase()))).sort((a,b)=>b.date.localeCompare(a.date));
  }
  function summary(){return {...engine.summary(state.records),novemberPayments:payments().filter(t=>t.kind==='payment'&&t.date.startsWith('2026-11')).reduce((n,t)=>n+t.amount,0),novemberEvents:state.records.filter(r=>r.type!=='Blackout'&&!r.cancelled&&r.date.startsWith('2026-11')).length};}
- function attention(){return clone(state.records.flatMap(r=>r.settled?[]:[...(r.total==null?[{id:r.id,kind:'price'}]:[]),...(r.due&&r.due<initial.TODAY&&balance(r)>0?[{id:r.id,kind:'overdue'}]:[]),...(r.date<initial.TODAY&&r.type!=='Blackout'?[{id:r.id,kind:'past'}]:[]),...(r.depositHeld?[{id:r.id,kind:'deposit'}]:[]),...(r.importedDifference?[{id:r.id,kind:'reconcile'}]:[])]));}
+ function attention(){return clone(state.records.flatMap(r=>r.settled||r.archived?[]:[...(needsPrice(r)?[{id:r.id,kind:'price'}]:[]),...(r.due&&r.due<initial.TODAY&&balance(r)>0?[{id:r.id,kind:'overdue'}]:[]),...(r.date<initial.TODAY&&r.type!=='Blackout'?[{id:r.id,kind:'past'}]:[]),...(r.depositHeld?[{id:r.id,kind:'deposit'}]:[]),...(r.importedDifference?[{id:r.id,kind:'reconcile'}]:[])]));}
  function insights(year='2026'){
   const rows=engine.initial(initial.annualBookings.filter(r=>year==='all'||r.date.startsWith(String(year)))).records;
   const totals=engine.summary(rows);return {...totals,count:rows.length,months:Array.from({length:12},(_,m)=>rows.filter(r=>Number(r.date.slice(5,7))===m+1).reduce((n,r)=>n+r.total,0)),types:rows.reduce((a,r)=>(a[r.type]=(a[r.type]||0)+1,a),{}),weekdays:rows.reduce((a,r)=>{const d=new Date(r.date+'T12:00:00Z').getUTCDay();a[d]=(a[d]||0)+1;return a;},{})};
@@ -69,6 +71,6 @@ export function createLedgerApi(presentation,initial=seed){
    }catch(error){state=previous;sequence=previousSequence;throw error;}
   },
   money,balance,
-  counts(){return Object.fromEntries(['all','due','attention','upcoming','past','cancelled','settled'].map(filter=>[filter,list({filter}).length]));}
+  counts(){return {archived:list({archived:'1'}).length,...Object.fromEntries(['all','due','attention','upcoming','past','cancelled','settled'].map(filter=>[filter,list({filter}).length]))};}
  };
 }

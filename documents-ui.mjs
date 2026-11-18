@@ -1,11 +1,11 @@
-import {paymentMethods,togglePaymentMethod} from './payment-method.mjs';
-import {pollDocuments,stopDocumentsPoll,warmDocuments,BACKGROUND_MESSAGE,documentOperation,finishDocumentOperation,STILL_SAVING} from './documents-lifecycle.mjs';
-import {contractAllowed,schedulePassed,outdatedContract,refreshContractCard} from './document-state.mjs';
-import {createDocumentProgress} from './document-progress.mjs';
+import {paymentMethods,togglePaymentMethod} from './payment-method.mjs?v=2.1.1';
+import {pollDocuments,stopDocumentsPoll,warmDocuments,BACKGROUND_MESSAGE,documentOperation,finishDocumentOperation,STILL_SAVING} from './documents-lifecycle.mjs?v=2.1.1';
+import {contractAllowed,schedulePassed,outdatedContract,refreshContractCard} from './document-state.mjs?v=2.1.1';
+import {createDocumentProgress} from './document-progress.mjs?v=2.1.1';
 const records=new WeakMap(),recordBoxes=new WeakMap();
 function remember(api,id,record){let map=records.get(api);if(!map){map=new Map();records.set(api,map);}map.set(id,record);return record;}
 const rowTemplates=new WeakMap(),rowProgress=new WeakMap(),rowStates=new WeakMap();
-import paymentScreen from './screens/record-payment.mjs';
+import paymentScreen from './screens/record-payment.mjs?v=2.1.1';
 export async function downloadDocument(api,id,toast){warmDocuments(api);const {blob,filename,preview}=await api.downloadDocument(id),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=filename;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);if(preview)toast('Synthetic PDF preview.');}
 export async function mountDocuments(api,id,toast){
  if(api.documentsEnabled===false)return;

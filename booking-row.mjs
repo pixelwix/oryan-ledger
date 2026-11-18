@@ -1,3 +1,4 @@
+import {archiveDate,bookingActionButton} from './booking-actions.mjs?v=2.1.1';
 const money=n=>'$'+Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 const compact=n=>'$'+Number(n||0).toLocaleString('en-US',{maximumFractionDigits:2});
 export function dueDate(r){
@@ -25,7 +26,7 @@ export function bookingRowBuilder(source,records,today,originalRecord=()=>null){
   if(record)profiles.set(record.id,{variant,node:node.cloneNode(true)});
  }
  const dateLabel=date=>new Date(date+'T12:00:00Z').toLocaleDateString('en-US',{month:'short',day:'2-digit',timeZone:'UTC'});
- return r=>{
+ return (r,{preserveHold=false}={})=>{
   const variant=rowVariant(r,today),profile=profiles.get(r.id);
   // Reuse locked status/action prototypes. The owner-approved common menu is
   // applied below regardless of a reference row's original action density.
@@ -49,6 +50,13 @@ export function bookingRowBuilder(source,records,today,originalRecord=()=>null){
   row.querySelectorAll('a').forEach(a=>{const href=a.getAttribute('href');a.href=href.includes('/edit')?detail+'/edit':href.includes('/pay')?detail+'/pay':detail;});
   const action=row.querySelector('.row-actions-cell > a');
   if(action){action.textContent=({paid:'Details',unpriced:'Set price',settled:'Details',mismatch:'Reconcile',cancelled:'Review'})[variant]||'Pay '+compact(r.balance);action.href=variant==='unpriced'?detail+'/edit':['due','overdue'].includes(variant)?detail+'/pay':detail;}
+  if(variant==='blocked'&&!(preserveHold&&profile?.variant==='blocked')){
+   const dropdown=prototypes.get('overdue').querySelector('.row-dropdown').cloneNode(true);
+   dropdown.querySelector('button').style.minHeight='var(--touch-target-min)';
+   const view=document.createElement('a');view.className='dropdown-item';view.href=detail;view.textContent='View details';
+   dropdown.querySelector('.dropdown-menu').replaceChildren(view,bookingActionButton('reschedule',r,'dropdown-item'));
+   row.querySelector('.row-actions-cell').append(dropdown);
+  }
   const menu=row.querySelector('.dropdown-menu');if(menu&&['due','overdue'].includes(variant))menu.replaceChildren(...[...prototypes.get('overdue').querySelector('.dropdown-menu').children].map(n=>n.cloneNode(true)));row.querySelectorAll('.dropdown-menu a').forEach(a=>{const href=a.getAttribute('href');a.href=href.includes('/edit')?detail+'/edit':href.includes('/pay')?detail+'/pay':detail;});
   if(variant!=='blocked'&&menu){
    const base=prototypes.get('overdue').querySelector('.dropdown-menu');menu.replaceChildren(...[...base.children].map(n=>n.cloneNode(true)));
@@ -56,6 +64,16 @@ export function bookingRowBuilder(source,records,today,originalRecord=()=>null){
    if(r.cancelled)menu.querySelectorAll('a').forEach(a=>{if(a.textContent.includes('Contract copy'))a.remove();});
    menu.querySelector('button').textContent=r.cancelled?'Restore booking':'Cancel booking';
    if(r.hasReceipts){const a=document.createElement('a');a.className='dropdown-item';a.href=detail;a.textContent='Receipts (PDF)';menu.children[0].after(a);}
+  }
+  if(r.archivedAt&&menu){
+   badge.textContent='Cancelled';
+   const archived=document.createElement('p');archived.textContent='Archived '+archiveDate(r.archivedAt);row.querySelector('.guest-info').append(archived);
+   row.querySelector('.row-actions-cell > button')?.remove();
+   const view=menu.querySelector('a');view.textContent='View';
+   menu.replaceChildren(bookingActionButton('unarchive',r,'dropdown-item'),view);
+  }else if(menu&&variant!=='blocked'){
+   const action=bookingActionButton(r.cancelled?'archive':'reschedule',r,'dropdown-item');
+   menu.querySelector('.dropdown-divider').before(action);
   }
   const trigger=row.querySelector('[data-toggle-menu]');if(menu){menu.id='menu-'+id;trigger.dataset.toggleMenu=menu.id;trigger.setAttribute('aria-expanded','false');menu.removeAttribute('open');}
   return row;

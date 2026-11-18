@@ -1,15 +1,16 @@
-import {bookingTransactions,transactionActions} from './transaction-actions.mjs';
-import {transactionSheet} from './transaction-sheet.mjs';
-import {warmDocuments} from './documents-lifecycle.mjs';
-import {contractAllowed,refreshContractCard} from './document-state.mjs';
-import {bookingRowBuilder,dueDate,rowVariant} from './booking-row.mjs';
-import {mountDocuments,contractSheet,downloadDocument,receiptRow,issueReceiptWithProgress} from './documents-ui.mjs';
+import {mountBookingActions,openBookingAction} from './booking-actions.mjs?v=2.1.1';
+import {bookingTransactions,transactionActions} from './transaction-actions.mjs?v=2.1.1';
+import {transactionSheet} from './transaction-sheet.mjs?v=2.1.1';
+import {warmDocuments} from './documents-lifecycle.mjs?v=2.1.1';
+import {contractAllowed,refreshContractCard} from './document-state.mjs?v=2.1.1';
+import {bookingRowBuilder,dueDate,rowVariant} from './booking-row.mjs?v=2.1.1';
+import {mountDocuments,contractSheet,downloadDocument,receiptRow,issueReceiptWithProgress} from './documents-ui.mjs?v=2.1.1';
 const rentalText=w=>!w?'—':typeof w==='string'?w:[w.start,w.end].map(t=>t==='00:00'?'Midnight':`${Number(t.slice(0,2))%12||12}:${t.slice(3)} ${Number(t.slice(0,2))<12?'AM':'PM'}`).join(' – ');
-import {commandSheet} from './command-sheet.mjs';
-import {readStates} from './read-states.mjs';
-import {mountLockedBehavior} from './locked-behaviors.mjs';
-import {money,balance} from './adapter.mjs';
-import {availableDay} from './calendar-parts.mjs';
+import {commandSheet} from './command-sheet.mjs?v=2.1.1';
+import {readStates} from './read-states.mjs?v=2.1.1';
+import {mountLockedBehavior} from './locked-behaviors.mjs?v=2.1.1';
+import {money,balance} from './adapter.mjs?v=2.1.1';
+import {availableDay} from './calendar-parts.mjs?v=2.1.1';
 const $=id=>document.getElementById(id);
 const val=id=>$(id).value;
 const number=id=>Number(val(id));
@@ -123,6 +124,7 @@ export async function mountFlows({api,route,go,toast,closeSheet}){
  mountLockedBehavior(screen,api,route,toast,r);
  if(screen==='booking'){await mountDocuments(api,route.id,toast);document.querySelectorAll('.timeline button').forEach((button,i)=>{button.dataset.transactionId||=r.payments.slice().reverse()[i]?.id||'';});}
  if(screen==='booking'){
+  mountBookingActions(r,r.id==='sophia'&&r.revision===api.original(r.id)?.revision&&r.date===api.original(r.id)?.date&&r.client===api.original(r.id)?.client);
   const transactions=(r.id==='sophia'&&r.revision===api.original('sophia').revision?r.payments.map(t=>({...t,category:'payment'})):bookingTransactions(r)).slice().reverse();
   document.querySelectorAll('.timeline-content').forEach((row,i)=>{const t=transactions[i];if(t){row.querySelector('button').dataset.transactionId=t.id;mountTransactionActions(row,api,r,t.id,toast,go,true);}});
  }
@@ -144,6 +146,12 @@ export async function mountFlows({api,route,go,toast,closeSheet}){
   finally{saving=false;if(submit)submit.disabled=false;}
  });
  document.body.addEventListener('click',async e=>{
+  const bookingAction=e.target.closest('[data-booking-action]');
+  if(bookingAction){
+   const {bookingId,bookingAction:action}=bookingAction.dataset;
+   try{await openBookingAction({api,id:bookingId,action,opener:bookingAction,go});}catch(error){toast(error.message);}
+   return;
+  }
   const contract=e.target.closest('.dropdown-item');if(contract?.textContent.trim()==='Contract copy (PDF)'){e.preventDefault();try{await contractSheet(api,contract.closest('.ledger-row').dataset.id,toast);}catch(error){toast(error.message);}return;}
   const reconcile=e.target.closest('a[href^="#/booking/"]');if(reconcile?.textContent.trim()==='Reconcile'){e.preventDefault();e.stopPropagation();const id=decodeURIComponent(reconcile.hash.slice('#/booking/'.length).split(/[/?]/)[0]);await commandSheet({api,id,kind:'reconcile',toast,go});return;}
   const receipt=e.target.closest('button');if(receipt?.textContent.trim()==='View receipt PDF'){try{const rows=await api.documents(route.id),row=await receiptRow(rows,receipt.dataset.transactionId);if(!row)throw Error('No receipt PDF is available after the document cutoff.');if(row.status==='saved')await downloadDocument(api,row.id,toast);else{await issueReceiptWithProgress(api,route.id,row.id,toast);await mountDocuments(api,route.id,toast);}}catch(e){toast(e.message);}return;}
@@ -213,19 +221,33 @@ async function mountBookings(api){
  for(const node of [...body.querySelectorAll('.ledger-row')]){
   const record=all.find(r=>r.contract===node.dataset.contract);
   if(!record){originalNodes.splice(originalNodes.indexOf(node),1);node.remove();continue;}
-  const row=makeRow(record);originalRows.push(row);originalNodes[originalNodes.indexOf(node)]=row;node.replaceWith(row);
+  const row=makeRow(record,{preserveHold:canonical});originalRows.push(row);originalNodes[originalNodes.indexOf(node)]=row;node.replaceWith(row);
  }
  for(const record of all.filter(r=>!originalRows.some(row=>row.dataset.id===r.id))){const row=makeRow(record);originalRows.push(row);originalNodes.push(row);body.append(row);}
- const counts=await api.counts();if(api.mode==='http')document.querySelector('.page-description').textContent=document.querySelector('.page-description').textContent.replace(/\d+ records displayed/,all.length+' records displayed');document.querySelectorAll('.filter-chip').forEach(chip=>chip.textContent=chip.textContent.replace(/\(\d+\)/,'('+counts[chip.dataset.filter]+')'));
+ const counts=await api.counts();
+ const description=document.querySelector('.page-description');
+ const defaultDescription=description.textContent.replace(/\d+ records displayed/,all.length+' records displayed');
+ description.textContent=defaultDescription;
+ document.querySelectorAll('.filter-chip').forEach(chip=>chip.textContent=chip.textContent.replace(/\(\d+\)/,'('+counts[chip.dataset.filter]+')'));
+ if(counts.archived>0){
+  const chip=document.createElement('button');chip.type='button';chip.className='filter-chip';chip.dataset.filter='archived';
+  chip.textContent='Archived ('+counts.archived+')';chip.style.minHeight='var(--touch-target-min)';
+  document.querySelector('.filter-chips').append(chip);
+ }
  // The frozen default order/grouping is retained. Explicit sorts and searches use adapter data.
  async function update(){
   const ticket=++updateSequence;
   const sort=$('sortSelect').value,query=$('bookingSearchInput').value,filter=document.querySelector('.filter-chip.active')?.dataset.filter||'all';
-  const rows=await api.list({q:query,filter,sort:sort.startsWith('guest')?'guest':sort.startsWith('balance')?'balance':'date'});if(ticket!==updateSequence||document.body!==mountBody)return;if(sort==='date-desc')rows.reverse();
-  for(const r of rows){const index=originalRows.findIndex(row=>row.dataset.id===r.id),row=makeRow(r);if(index<0)originalRows.push(row);else{const old=originalRows[index],nodeIndex=originalNodes.indexOf(old);if(nodeIndex>=0)originalNodes[nodeIndex]=row;old.replaceWith(row);originalRows[index]=row;}}
+  const archived=filter==='archived',search=$('bookingSearchInput');
+  search.disabled=archived;
+  if(archived)search.value='';
+  const sortBy=sort.startsWith('guest')?'guest':sort.startsWith('balance')?'balance':'date';
+  const rows=await api.list(archived?{archived:'1',sort:sortBy}:{q:query,filter,sort:sortBy});if(ticket!==updateSequence||document.body!==mountBody)return;if(sort==='date-desc')rows.reverse();
+  description.textContent=archived?defaultDescription.replace(/\d+ records displayed/,rows.length+' archived displayed'):defaultDescription;
+  for(const r of rows){const index=originalRows.findIndex(row=>row.dataset.id===r.id),row=makeRow(r,{preserveHold:canonical&&filter==='all'&&!query&&sort==='date-asc'});if(index<0)originalRows.push(row);else{const old=originalRows[index],nodeIndex=originalNodes.indexOf(old);if(nodeIndex>=0)originalNodes[nodeIndex]=row;old.replaceWith(row);originalRows[index]=row;}}
   edge?.clear('error');edge?.clear('empty');if(!rows.length)edge?.show('empty');
   const ids=new Set(rows.map(r=>r.id));originalRows.forEach(row=>row.style.display=ids.has(row.dataset.id)?'':'none');
-  if(sort!=='date-asc'||query||!canonical){
+  if(archived||sort!=='date-asc'||query||!canonical){
    body.replaceChildren();let lastMonth=null;outerHeader.style.display='none';
    rows.forEach(r=>{const row=originalRows.find(el=>el.dataset.id===r.id);if(!row)return;
     const month=r.date.slice(0,7);if(sort.startsWith('date')&&month!==lastMonth&&dividerSample){const divider=dividerSample.cloneNode(true);divider.firstElementChild.textContent=new Date(r.date+'T12:00:00').toLocaleDateString('en-US',{month:'long',year:'numeric'});body.append(divider);lastMonth=month;}body.append(row);
@@ -234,7 +256,10 @@ async function mountBookings(api){
 
  }
  mountBody.addEventListener('contract-saved',()=>{if(document.body===mountBody)update().catch(()=>edge?.show('error'));});
- $('sortSelect').addEventListener('change',update);$('bookingSearchInput').addEventListener('input',()=>update().catch(()=>edge?.show('error')));document.querySelectorAll('.filter-chip').forEach(chip=>chip.addEventListener('click',update));
+ $('sortSelect').addEventListener('change',update);$('bookingSearchInput').addEventListener('input',()=>update().catch(()=>edge?.show('error')));document.querySelectorAll('.filter-chip').forEach(chip=>chip.addEventListener('click',()=>{
+  document.querySelectorAll('.filter-chip').forEach(candidate=>candidate.classList.toggle('active',candidate===chip));
+  update().catch(()=>edge?.show('error'));
+ }));
  if(!canonical){$('sortSelect').value='date-desc';await update();}
 }
 async function mountCalendar(api,go){

@@ -135,7 +135,7 @@ const BetaLedger = (() => {
     const r=clone(input);r.beta=true;r.revision=r.revision||0;
     r.payments=r.payments||[];r.refunds=r.refunds||[];r.voids=r.voids||[];r.depositTransactions=r.depositTransactions||[];r.activity=r.activity||[];
     r.paymentContacts=r.paymentContacts||[];r.nextFollowUp=r.nextFollowUp||'';r.cancellationDue=r.cancellationDue||'';
-    r.contractStatus=r.contractStatus||'Not prepared';r.cancelled=!!r.cancelled;if(!(r.settled&&r.settled.resolved))delete r.settled;
+    r.contractStatus=r.contractStatus||'Not prepared';r.cancelled=!!r.cancelled;if(!(r.settled&&r.settled.resolved))delete r.settled;if(!(r.archived&&r.archived.at))delete r.archived;
     r.cancellationFee=r.cancellationFee==null?null:Number(r.cancellationFee);
     r.original=r.original||{total:r.total,openingPaid:r.openingPaid||0,sheetBalance:r.sheetBalance,importedDifference:r.importedDifference||0};
     const voided=id=>r.voids.some(v=>v.targetId===id);
@@ -189,7 +189,7 @@ const BetaLedger = (() => {
     } else {
       if(!r)throw Error('That booking is no longer available. Refresh the beta.');
       if(cmd.expectedRevision!==r.revision)throw Error('This booking changed since you opened it. Refresh and review before saving.');
-      if(r.type==='Blackout'&&!['edit','cancel','release','restore'].includes(cmd.type))throw Error('Money and contracts are not available for blocked dates.');
+      if(r.type==='Blackout'&&!['edit','cancel','release','restore','reschedule','archive','unarchive'].includes(cmd.type))throw Error('Money and contracts are not available for blocked dates.');
       switch(cmd.type) {
         case 'edit': {
           allowed(v,['client','phone','contract','type','date','total','due','covers','projector','audio','bar','security','notes','reason','lines','email','guestCount','rentalWindow']);reason(v.reason);
@@ -238,7 +238,37 @@ const BetaLedger = (() => {
         }
         case 'restore': {
           allowed(v,['reason']);reason(v.reason);if(!r.cancelled)throw Error('This booking is already active.');checkDate(next.records,r,r.date);
-          r.nextFollowUp='';r.cancelled=false;r.lastCancellationFee=r.cancellationFee;r.cancellationFee=null;break;
+          r.nextFollowUp='';r.cancelled=false;delete r.archived;r.lastCancellationFee=r.cancellationFee;r.cancellationFee=null;break;
+        }
+        case 'reschedule': {
+          // Moves the event (or a blocked date) to another day. Price, payments, deposit and notes are untouched.
+          allowed(v,['date','reason']);reason(v.reason);
+          if(r.cancelled)throw Error('Restore the booking before changing its date.');
+          const date=Ledger.date(v.date);
+          if(date===r.date)throw Error('Choose a different date.');
+          checkDate(next.records,r,date);
+          r.date=date;
+          // A balance due date that would now fall after the event goes back to the standard 20 days before it.
+          if(r.due&&r.due>date)r.due='';
+          // A past-event "settled" mark no longer applies once the event moves.
+          if(r.settled)r.settled=null;
+          break;
+        }
+        case 'archive': {
+          // Display-only, like settled: no money changes. Only cancelled records with nothing owed either way.
+          allowed(v,['reason']);reason(v.reason);
+          if(!r.cancelled)throw Error('Only cancelled bookings can be archived.');
+          if(r.archived)throw Error('This booking is already archived.');
+          const owed=r.financialTotal==null?(r.paid>0?null:0):round(r.financialTotal-r.paid);
+          if(owed!==0)throw Error('Settle the cancellation charge and any balance or credit first, then archive.');
+          // A held refundable deposit is money owed back to the client and is tracked in Needs attention: resolve it first.
+          if(r.depositHeld>0)throw Error('Return or deduct the held security deposit first, then archive.');
+          r.archived={at:meta.at,by:meta.actor,reason:Ledger.text(v.reason,500)};break;
+        }
+        case 'unarchive': {
+          allowed(v,['reason']);reason(v.reason);
+          if(!r.archived)throw Error('This booking is not archived.');
+          r.archived=null;break;
         }
         case 'settle': {
           allowed(v,['amount','reason']);reason(v.reason);
@@ -288,7 +318,7 @@ const BetaLedger = (() => {
         default: throw Error('Unknown beta action.');
       }
     }
-    if(previous&&(['cancel','restore'].includes(cmd.type)||(['edit','reconcile'].includes(cmd.type)&&['client','phone','contract','type','date','total',...(v.lines!==undefined&&JSON.stringify(previous.lines)!==JSON.stringify(r.lines)?['lines']:[]),'covers','projector','audio','bar','security'].some(k=>previous[k]!==r[k])))){r.contractStatus='Not prepared';r.contractStatusDate='';}
+    if(previous&&(['cancel','restore'].includes(cmd.type)||(['edit','reconcile','reschedule'].includes(cmd.type)&&['client','phone','contract','type','date','total',...(v.lines!==undefined&&JSON.stringify(previous.lines)!==JSON.stringify(r.lines)?['lines']:[]),'covers','projector','audio','bar','security'].some(k=>previous[k]!==r[k])))){r.contractStatus='Not prepared';r.contractStatusDate='';}
     r.revision++;r.activity.push({type:cmd.type,at:meta.at,actor:meta.actor,reason:Ledger.text(v.reason||v.note,500),changes:[...(cmd.type==='waiveDeposit'?[{field:'depositWaiver',before:previous?.depositWaiver??'',after:r.depositWaiver}]:[]),...(cmd.type==='edit'&&v.lines!==undefined?Ledger.lineChanges(Ledger.editLines(previous),r.lines):[]),...Object.keys(v).filter(k=>k!=='reason'&&!(cmd.type==='edit'&&v.lines!==undefined&&k==='lines')).map(k=>({field:k,before:previous?.[k]??'',after:k in r?r[k]:v[k]})),...(previous&&previous.contractStatus!==r.contractStatus?[{field:'contractStatus',before:previous.contractStatus,after:r.contractStatus}]:[])]});
     next.records[next.records.findIndex(b=>b.id===r.id)]=derive(r);
     return next;
