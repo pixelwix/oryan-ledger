@@ -2,6 +2,10 @@
 // RULE: every change staff can notice adds an entry here and bumps the version (the footer number is CHANGELOG[0].version).
 // Write for staff, in plain words. Dates are YYYY-MM-DD (Chicago business date).
 export const CHANGELOG=[
+ {version:'2.0.4',date:'2026-11-17',title:'Hall capacity',items:[
+  'New booking: the hall capacity note now reads 150, and the guest count can be no more than 150.',
+  'Six old test bookings were removed from the ledger.'
+ ]},
  {version:'2.0.3',date:'2026-11-17',title:'Overview first, deposit and capacity',items:[
   'Overview is now the first screen after you sign in, so what needs your attention is the first thing you see.',
   'Clicking the O\u2019Ryan logo takes you to the Overview.',

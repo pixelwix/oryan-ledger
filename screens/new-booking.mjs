@@ -115,7 +115,7 @@ const markup = `
             <span>Estimated guest count</span>
             <span class="form-label-note">{{v4}}</span>
           </label>
-          <input type="number" id="guestCount" class="form-input" value="{{v28}}" min="1" max="300">
+          <input type="number" id="guestCount" class="form-input" value="{{v28}}" min="1" max="150">
         </div>
 
         <div style="display: flex; justify-content: flex-end; margin-top: var(--space-4);">
