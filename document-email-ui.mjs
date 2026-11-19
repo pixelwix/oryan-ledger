@@ -1,5 +1,5 @@
-import paymentScreen from './screens/record-payment.mjs?v=2.2.0';
-import {validDocumentEmail} from './document-email-address.mjs?v=2.2.0';
+import paymentScreen from './screens/record-payment.mjs?v=2.2.1';
+import {validDocumentEmail} from './document-email-address.mjs?v=2.2.1';
 
 const drafts = new WeakMap();
 const opening = new WeakSet();
@@ -32,7 +32,6 @@ export function addDocumentEmail(api,row,record,copy,toast,refresh) {
  action.hidden = !navigator.onLine;
  const button = element('button','btn btn-quiet btn-sm','Email to customer');
  button.type = 'button';
- button.style.minHeight = 'var(--touch-target-min)';
  button.onclick = () => emailSheet(api,row,record,button,toast,refresh).catch(() => toast('Unable to open the email form.'));
  action.dataset.documentEmailAction = '';
  action.append(button);

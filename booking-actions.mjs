@@ -1,4 +1,4 @@
-import paymentScreen from './screens/record-payment.mjs?v=2.2.0';
+import paymentScreen from './screens/record-payment.mjs?v=2.2.1';
 
 const opening = new WeakSet();
 const explanations = {
@@ -44,8 +44,8 @@ export function mountBookingActions(record, referenceDetail) {
  // No size overrides: the button must be exactly as large as the buttons beside it (locked UI, no drift).
  if (referenceDetail) {
   bar.querySelector('.more-menu-divider').before(button);
- } else if (!record.archived) {
-  bar.before(button);
+ } else {
+  bar.before(button);          // archived bookings too: Unarchive sits in the action bar, the same size as its neighbours
  }
  if (record.type !== 'Blackout') {
   const contact = bookingActionButton('contact', record, referenceDetail ? 'more-menu-item' : 'btn btn-quiet');
@@ -56,7 +56,6 @@ export function mountBookingActions(record, referenceDetail) {
   const note = document.createElement('p');
   note.className = 'card-subtitle';
   note.textContent = 'Archived on '+archiveDate(record.archived.at)+' by '+record.archived.by+'.';
-  note.append(' ', button);
   bar.parentElement.after(note);
  }
 }

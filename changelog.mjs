@@ -2,6 +2,10 @@
 // RULE: every change staff can notice adds an entry here and bumps the version (the footer number is CHANGELOG[0].version).
 // Write for staff, in plain words. Dates are YYYY-MM-DD (Chicago business date).
 export const CHANGELOG=[
+ {version:'2.2.1',date:'2026-11-18',title:'Button sizes: Email and Unarchive',items:[
+  'The Email to customer button under Saved copies is now the same size as the Download button beside it (it was larger).',
+  'Unarchive on an archived booking now sits with the other buttons at the top of the booking, the same size as them, instead of inside the "Archived on" line.'
+ ]},
  {version:'2.2.0',date:'2026-11-18',title:'Email saved PDFs, edit contact info, payment reminders',items:[
   'Needs attention now reminds the team: "Balance due today" 20 days before the event, "Final balance deadline" from 14 days before if the balance is still unpaid, and "Security deposit not received" from 7 days before if the deposit is still owed.',
   'New booking: the refundable damage deposit now starts as "Owed before event". It only records a received deposit if you choose "Received & Held".',
