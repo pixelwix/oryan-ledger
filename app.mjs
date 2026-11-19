@@ -1,13 +1,13 @@
-import {startDocumentsWarm,DOCUMENTS_WARM_MINUTES} from './documents-lifecycle.mjs?v=2.2.1';
-import {closeRowMenu,installMenuAutoClose,positionRowMenu,rowMenuKeyboard} from './row-menu.mjs?v=2.2.1';
-import {createHttpLedgerApi} from './http-adapter.mjs?v=2.2.1';
-import {readStates} from './read-states.mjs?v=2.2.1';
-import {createLedgerApi,money,balance} from './adapter.mjs?v=2.2.1';
-import {parseRoute} from './routes.mjs?v=2.2.1';
-import {CHANGELOG,VERSION} from './changelog.mjs?v=2.2.1';
-import {savedTheme,applyTheme,effectiveTheme,syncTheme} from './theme.mjs?v=2.2.1';
-import {mountFlows} from './flows.mjs?v=2.2.1';
-const presentation=await fetch('./presentation.json?v=2.2.1').then(r=>r.json());
+import {startDocumentsWarm,DOCUMENTS_WARM_MINUTES} from './documents-lifecycle.mjs?v=2.3.0';
+import {closeRowMenu,installMenuAutoClose,positionRowMenu,rowMenuKeyboard} from './row-menu.mjs?v=2.3.0';
+import {createHttpLedgerApi} from './http-adapter.mjs?v=2.3.0';
+import {readStates} from './read-states.mjs?v=2.3.0';
+import {createLedgerApi,money,balance} from './adapter.mjs?v=2.3.0';
+import {parseRoute} from './routes.mjs?v=2.3.0';
+import {CHANGELOG,VERSION} from './changelog.mjs?v=2.3.0';
+import {savedTheme,applyTheme,effectiveTheme,syncTheme} from './theme.mjs?v=2.3.0';
+import {mountFlows} from './flows.mjs?v=2.3.0';
+const presentation=await fetch('./presentation.json?v=2.3.0').then(r=>r.json());
 // A hosted Worker address and Google client ID come ONLY from the app's own app-config.json (public values written at deploy time).
 // The URL can only select a loopback Worker for local development; it can never point the app (and its token) at another server.
 const appConfig=await fetch('./app-config.json',{cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null);
@@ -17,7 +17,7 @@ const workerOrigin=trustedOrigin?appConfig.workerOrigin:params.get('worker');
 const clientId=trustedOrigin?appConfig.googleClientId:(workerOrigin?params.get('client'):'');
 let auth=null,signin=null,me=null,retryWaiter=null,documentsWarm=null;
 if(clientId){
- const [{createAuth},{mountSignIn}]=await Promise.all([import('./auth.mjs?v=2.2.1'),import('./signin-ui.mjs?v=2.2.1')]);
+ const [{createAuth},{mountSignIn}]=await Promise.all([import('./auth.mjs?v=2.3.0'),import('./signin-ui.mjs?v=2.3.0')]);
  auth=createAuth({clientId,origin:workerOrigin,onState:(state,info)=>{signin?.render(state,info);documentsWarm?.sync();}});
  signin=mountSignIn({auth,toast,onRetry:()=>{if(retryWaiter){const resolve=retryWaiter;retryWaiter=null;resolve();}else auth.start().catch(()=>{});}});
 }
@@ -50,10 +50,13 @@ export async function render(){
    if(['bookings','new-booking'].includes(route.screen))await ledgerApi.list();
    if(['booking','record-payment','edit-booking'].includes(route.screen))await ledgerApi.detail(route.id);
   }
-  const module=await import('./screens/'+route.screen+'.mjs?v=2.2.1');
+  const module=await import('./screens/'+route.screen+'.mjs?v=2.3.0');
   if(ticket!==renderSequence)return;
   const style=document.getElementById('routeStyles')||document.head.appendChild(Object.assign(document.createElement('style'),{id:'routeStyles'}));style.textContent=module.styles;
-  const body=document.createElement('body');body.innerHTML=module.default(await ledgerApi.presentation(route.screen));document.body.replaceWith(body);
+  const body=document.createElement('body');body.innerHTML=module.default(await ledgerApi.presentation(route.screen));{const kept=document.querySelector('.app-header'),fresh=body.querySelector('.app-header');
+   // One header for the whole app: keep the same element on every screen, change only which tab is current. Nothing in it moves.
+   if(kept&&fresh){for(const link of kept.querySelectorAll('.nav-link')){const next=fresh.querySelector('.nav-link[href="'+link.getAttribute('href')+'"]');if(next){link.classList.toggle('active',next.classList.contains('active'));if(next.hasAttribute('aria-current'))link.setAttribute('aria-current',next.getAttribute('aria-current'));else link.removeAttribute('aria-current');}}fresh.replaceWith(kept);}}
+  document.body.replaceWith(body);
   activeRoute=route;document.body.style.overflow='';syncTheme();
   await mountFlows({api:ledgerApi,route,go,toast,closeSheet});
   if(focusId){document.querySelector(focusId)?.focus({preventScroll:true});focusId=null;}

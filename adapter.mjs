@@ -1,17 +1,21 @@
-import {balanceDueDate} from './due-date.mjs?v=2.2.1';
-import {balanceAlert,depositAlert,depositOwed} from './attention-rules.mjs?v=2.2.1';
+import {reminderEligible,reminderFields} from './reminder-message.mjs?v=2.3.0';
+import {validDocumentEmail} from './document-email-address.mjs?v=2.3.0';
+import {exportName,exportYears,ledgerCsv} from './ledger-export.mjs?v=2.3.0';
+import {balanceDueDate} from './due-date.mjs?v=2.3.0';
+import {balanceAlert,depositAlert,depositOwed} from './attention-rules.mjs?v=2.3.0';
 // The frozen sample ledger keeps its original look: reminders only apply to bookings that are not an unchanged sample row.
 const isFrozenSample=(originalRows,r)=>{const o=originalRows.find(x=>x.id===r.id);return !!o&&r.revision===o.revision;};
-import {fixtureDocuments} from './document-preview.mjs?v=2.2.1';
+import {fixtureDocuments} from './document-preview.mjs?v=2.3.0';
 // In-memory synthetic adapter; optional contact and rental fields live in engine records.
-import seed from './fixtures.mjs?v=2.2.1';
-import {displayMetadata} from './display-fixtures.mjs?v=2.2.1';
-import {engine,Ledger} from './engine.mjs?v=2.2.1';
+import seed from './fixtures.mjs?v=2.3.0';
+import {displayMetadata} from './display-fixtures.mjs?v=2.3.0';
+import {engine,Ledger} from './engine.mjs?v=2.3.0';
 const clone=v=>JSON.parse(JSON.stringify(v));
 export const money=n=>'$'+Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 export const balance=r=>r.financialTotal==null?null:Math.max(0,Math.round((r.financialTotal-r.paid)*100)/100);
 export function createLedgerApi(presentation,initial=seed){
  const normalized=clone(initial.bookings).map(r=>({...r,id:r.id.split('#')[0]}));
+ const reminderSends=new Map();
  let state=engine.initial(normalized),sequence=0;
  const original=engine.initial(normalized).records;
  const needsPrice=r=>r.type!=='Blackout'&&(r.cancelled?r.financialTotal:r.total)==null;
@@ -20,7 +24,7 @@ export function createLedgerApi(presentation,initial=seed){
  function list({q='',filter='all',sort='date',from='',to='',archived=''}={}){
   const query=q.trim().toLowerCase();
   if(archived==='1'&&(query||from||to))throw Error('The Archived view cannot be combined with search or a date range.');
-  let rows=state.records.filter(r=>Boolean(r.archived)===(archived==='1')&&(!query||[r.client,r.phone,r.contract].join(' ').toLowerCase().includes(query)));
+  let rows=state.records.filter(r=>Boolean(r.archived)===(archived==='1')&&(!query||[r.client,r.phone,r.contract,r.email].some(value=>String(value||'').toLowerCase().includes(query))));
   if(from)rows=rows.filter(r=>r.date>=from);if(to)rows=rows.filter(r=>r.date<=to);
   rows=rows.filter(r=>filter==='all'||filter==='due'&&balance(r)>0&&!r.cancelled||filter==='attention'&&(needsPrice(r)||r.importedDifference||r.due&&r.due<initial.TODAY&&balance(r)>0||(balanceAlert({...r,balance:balance(r)},initial.TODAY)||depositAlert({...r,depositOwed:depositOwed(r)},initial.TODAY))&&!isFrozenSample(original,r)||r.date<initial.TODAY&&r.type!=='Blackout'||r.depositHeld>0)&&!r.settled||filter==='upcoming'&&r.date>=initial.TODAY&&!r.cancelled||filter==='past'&&r.date<initial.TODAY||filter==='cancelled'&&r.cancelled||filter==='settled'&&r.settled);
   if(sort==='date')rows.sort((a,b)=>a.date.localeCompare(b.date));
@@ -59,10 +63,35 @@ export function createLedgerApi(presentation,initial=seed){
   }
   state=next;return detail(type==='create'?meta.id:id);
  }
+ function commandBatch(batch){
+  let next=state, nextSequence=sequence;
+  for(const command of batch){
+   if(command.type==='create'&&command.values.type==='Blackout'&&next.records.some(r=>!r.cancelled&&r.date===command.values.date))throw Error('Date already booked or blocked: '+command.values.date+'.');
+   next=engine.apply(next,command,{id:(++nextSequence).toString(36).padStart(6,'0')+'-local-block',actor:'Owner',at:new Date().toISOString()});
+  }
+  state=next;sequence=nextSequence;
+ }
  function intakeExtras(v){return Object.entries(intakeRates).filter(([k])=>v[k]).map(([key,rate])=>({key,label:Ledger.extraLabels?.[key]||key,amount:rate}));}
  function presentationFor(screen){return clone(presentation[screen]);}
  const documentApi=fixtureDocuments(detail,initial.TODAY,commands);
- return {...documentApi,list,search:q=>list({q}),detail,summary,attention,payments,insights,calendar,commands,presentation:presentationFor,original:id=>{const r=original.find(r=>r.id===id);return r?clone(r):null;},today:initial.TODAY,edge:clone(initial.edgeScenarios),rates:clone(Ledger.extraRates),priceLines:Ledger.priceLines,
+ return {...documentApi,list,search:q=>list({q}),detail,summary,attention,payments,insights,calendar,commands,commandBatch,presentation:presentationFor,original:id=>{const r=original.find(r=>r.id===id);return r?clone(r):null;},today:initial.TODAY,edge:clone(initial.edgeScenarios),rates:clone(Ledger.extraRates),priceLines:Ledger.priceLines,
+  emailReminder(id,to,requestId,revision){
+   if(!validDocumentEmail(to))throw Error('Enter one valid email address.');
+   const prior=reminderSends.get(requestId);
+   if(prior){
+    if(prior.id!==id||prior.to!==to)throw Error('This send was started with different details.');
+    return {alreadySent:true};
+   }
+   const booking=detail(id);
+   if(booking.revision!==revision||!reminderEligible(booking,initial.TODAY))throw Error('The booking changed. Review the balance and reopen the reminder.');
+   const {amountDueCents,dueDate}=reminderFields(booking);
+   commands('reminder',id,{kind:'contact',date:initial.TODAY,method:'Email',note:'Payment reminder emailed to '+to,reason:'Payment reminder emailed.',sentEmail:{amountDueCents,dueDate}});
+   reminderSends.set(requestId,{id,to});
+   return {alreadySent:false};
+  },
+  exportYears:kind=>exportYears(state.records,kind),
+  exportCsv:(kind,year)=>({filename:exportName(kind,year),blob:new Blob([ledgerCsv(state.records,kind,year)],{type:'text/csv;charset=utf-8'})}),
+  bookingTypes:Ledger.types,validateBookingDate:Ledger.date,
   intakeRates,newExtraAmount:100,
   createBooking(values,metadata){
    const previous=state;const previousSequence=sequence;

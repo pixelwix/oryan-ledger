@@ -11,11 +11,11 @@ const markup = `
         </div>
       </a>
       <nav class="nav-tabs">
-        <a href="#/overview" class="nav-link">Overview</a>
-        <a href="#/bookings" class="nav-link active">Bookings</a>
-        <a href="#/calendar" class="nav-link">Calendar</a>
-        <a href="#/payments" class="nav-link">Payments</a>
-        <a href="#/insights" class="nav-link">Insights</a>
+        <a href="#/overview" class="nav-link" data-label="Overview">Overview</a>
+        <a href="#/bookings" class="nav-link active" data-label="Bookings">Bookings</a>
+        <a href="#/calendar" class="nav-link" data-label="Calendar">Calendar</a>
+        <a href="#/payments" class="nav-link" data-label="Payments">Payments</a>
+        <a href="#/insights" class="nav-link" data-label="Insights">Insights</a>
       </nav>
       <div class="header-actions">
         <button class="theme-toggle-btn" aria-label="Toggle theme"></button>

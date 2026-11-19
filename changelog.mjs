@@ -2,6 +2,17 @@
 // RULE: every change staff can notice adds an entry here and bumps the version (the footer number is CHANGELOG[0].version).
 // Write for staff, in plain words. Dates are YYYY-MM-DD (Chicago business date).
 export const CHANGELOG=[
+ {version:'2.3.0',date:'2026-11-18',title:'Cancellation charges, booking details and exports',items:[
+  'Confirm cancellations with a reason and a charge that starts at the amount already paid. You can also set the charge on older cancellations.',
+  'Use Edit details to update the guest, contact information, event type, headcount, rental hours or notes. Changing the guest name or event type resets the contract status.',
+  'Search Bookings by email, use Book again to start a new reservation with the same guest details, or block up to 31 dates at once.',
+  'Download Bookings and Payments as CSV files for a year or for all years, and export upcoming events from Calendar.',
+  'Preview and send a payment reminder from the booking page. The ledger records each confirmed send.'
+ ]},
+ {version:'2.2.2',date:'2026-11-18',title:'One steady header',items:[
+  'The header and its tabs (Overview, Bookings, Calendar, Payments, Insights) no longer move when you switch pages: it is one header on every page, and only the page below it changes.',
+  'The header buttons are the same on every page: Overview no longer shows the "St. Paul · Live" tag, and Payments shows "+ New booking" (Record payment is still on the Payments page itself).'
+ ]},
  {version:'2.2.1',date:'2026-11-18',title:'Button sizes: Email and Unarchive',items:[
   'The Email to customer button under Saved copies is now the same size as the Download button beside it (it was larger).',
   'Unarchive on an archived booking now sits with the other buttons at the top of the booking, the same size as them, instead of inside the "Archived on" line.'

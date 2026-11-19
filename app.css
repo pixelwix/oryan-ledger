@@ -2,7 +2,7 @@
    Executive top bar on desktop, ergonomic bottom bar on mobile.
    Calm, scannable, accessible, zero-clutter ledger aesthetic. */
 
-@import url('tokens.css?v=2.2.1');
+@import url('tokens.css?v=2.3.0');
 
 /* =========================================================================
    Reset & Base Typography
@@ -192,6 +192,23 @@ a:hover {
 [data-theme="dark"] .nav-link.active {
   color: var(--accent);
   background-color: var(--accent-surface);
+}
+
+/* Header tabs never move: each tab reserves the width of its bold (current) label, so switching pages changes only colour. */
+.nav-link[data-label] {
+  flex-direction: column;
+  justify-content: center;
+  gap: 0;
+}
+.nav-link[data-label]::after {
+  content: attr(data-label);
+  content: attr(data-label) / "";
+  font-weight: 600;
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
+  user-select: none;
 }
 
 /* Header Action Tools */

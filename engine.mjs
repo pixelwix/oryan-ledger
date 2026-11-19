@@ -255,17 +255,30 @@ const BetaLedger = (() => {
           break;
         }
         case 'contact': {
-          // Phone number and email only. Nothing else changes: not the price, date, extras, payments, or the contract status.
-          allowed(v,['phone','email','reason']);
-          if(v.phone===undefined&&v.email===undefined)throw Error('Enter a phone number or an email.');
-          const before={phone:r.phone||'',email:r.email||''};
+          const fields=['client','phone','email','type','guestCount','rentalWindow','notes'];
+          allowed(v,[...fields,'reason']);
+          if(!fields.some(k=>v[k]!==undefined))throw Error('Enter a phone number or an email, or change another booking detail.');
+          if(v.client!==undefined){
+            if(typeof v.client!=='string'||!Ledger.text(v.client,150))throw Error('Enter the guest’s name.');
+            r.client=Ledger.text(v.client,150);
+          }
+          if(v.type!==undefined){
+            if(v.type==='Blackout'||!Ledger.types.includes(v.type))throw Error('Choose an event type.');
+            r.type=v.type;
+          }
           if(v.phone!==undefined){
             if(typeof v.phone!=='string')throw Error('Invalid phone number.');
             const phone=Ledger.text(v.phone,40);if(/[\x00-\x1f\x7f<>]/.test(phone))throw Error('Invalid phone number.');
             r.phone=phone;
           }
-          if(v.email!==undefined)Object.assign(r,bookingExtras({email:v.email}));
-          if((r.phone||'')===before.phone&&(r.email||'')===before.email)throw Error('Nothing changed.');
+          if(v.notes!==undefined){
+            if(typeof v.notes!=='string')throw Error('Invalid notes.');
+            r.notes=Ledger.text(v.notes,2000);
+          }
+          Object.assign(r,bookingExtras({email:v.email,guestCount:v.guestCount??undefined,rentalWindow:v.rentalWindow??undefined}));
+          for(const k of ['guestCount','rentalWindow'])if(v[k]===null)delete r[k];
+          if(!fields.some(k=>JSON.stringify(r[k]??'')!==JSON.stringify(previous[k]??'')))throw Error('Nothing changed.');
+          if(r.client!==previous.client||r.type!==previous.type){r.contractStatus='Not prepared';r.contractStatusDate='';}
           if(v.reason!==undefined&&String(v.reason).trim())reason(v.reason);   // the reason is optional for contact details
           break;
         }
@@ -297,6 +310,14 @@ const BetaLedger = (() => {
           r.reconciliation={resolved:true,reason:v.reason,createdAt:meta.at,createdBy:meta.actor};break;
         }
         case 'reminder': {
+          if(v.sentEmail!==undefined){
+            allowed(v,['kind','date','method','note','reason','sentEmail']);reason(v.reason);
+            const message=v.sentEmail;
+            allowed(message,['amountDueCents','dueDate']);
+            if(v.kind!=='contact'||v.method!=='Email'||!Number.isSafeInteger(message.amountDueCents)||message.amountDueCents<=0)throw Error('Invalid sent reminder.');
+            r.paymentContacts.push({id:meta.id,date:Ledger.date(v.date),method:'Email',note:Ledger.text(v.note,500),amountDue:message.amountDueCents/100,due:Ledger.date(message.dueDate),nextFollowUp:r.nextFollowUp,createdAt:meta.at,createdBy:meta.actor});
+            break;
+          }
           allowed(v,['kind','due','nextFollowUp','date','method','note','reason']);reason(v.reason);
           if(!['plan','contact'].includes(v.kind))throw Error('Choose a reminder action.');
           if(r.financialTotal==null||r.financialTotal-r.paid<=0)throw Error('A confirmed outstanding event balance is required.');

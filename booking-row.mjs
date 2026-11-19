@@ -1,4 +1,4 @@
-import {archiveDate,bookingActionButton} from './booking-actions.mjs?v=2.2.1';
+import {archiveDate,bookingActionButton} from './booking-actions.mjs?v=2.3.0';
 const money=n=>'$'+Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 const compact=n=>'$'+Number(n||0).toLocaleString('en-US',{maximumFractionDigits:2});
 export function dueDate(r){
