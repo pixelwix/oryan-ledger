@@ -1,3 +1,4 @@
+import {balanceDueDate} from './due-date.mjs?v=2.2.0';
 // Port of v0.8.4 contractFields_; parity is tested against the protected source.
 const Ledger=(()=>{
   function text(value, limit = 500) { return String(value == null ? '' : value).trim().slice(0, limit); }
@@ -28,7 +29,7 @@ export function contractFields_(r, input, today) {
   if (r.total != null && input.missingPrice) throw Error('The agreed price comes from the ledger. Reopen the form.');
   const initial = Ledger.cents(field('initial', 20));
   if (initial > totalCents) throw Error('The initial amount cannot exceed the agreed price.');
-  const deadline = contractDay_(r.date, -14);
+  const deadline = balanceDueDate(r.date, today);
   if (deadline < today && input.confirmSchedule !== true) throw Error('Confirm the payment schedule for this event.');
   if (input.confirmSchedule != null && typeof input.confirmSchedule !== 'boolean') throw Error('Confirm the payment schedule.');
   const method = field('method', 20);

@@ -2,6 +2,14 @@
 // RULE: every change staff can notice adds an entry here and bumps the version (the footer number is CHANGELOG[0].version).
 // Write for staff, in plain words. Dates are YYYY-MM-DD (Chicago business date).
 export const CHANGELOG=[
+ {version:'2.2.0',date:'2026-11-18',title:'Email saved PDFs, edit contact info, payment reminders',items:[
+  'Needs attention now reminds the team: "Balance due today" 20 days before the event, "Final balance deadline" from 14 days before if the balance is still unpaid, and "Security deposit not received" from 7 days before if the deposit is still owed.',
+  'New booking: the refundable damage deposit now starts as "Owed before event". It only records a received deposit if you choose "Received & Held".',
+  'The balance is due 20 days before the event, and never later than 14 days before it. The contract PDF now prints the same date as the ledger.',
+  'The contract\'s Initial payment now starts with the amount already recorded as paid.',
+  'Edit contact info: change a booking\'s phone number or email at any time from the booking page. The price, date and payments are not touched.',
+  'Send a saved contract or receipt from the booking page. Confirm the customer’s email address before sending and see the latest send under Saved copies.'
+ ]},
  {version:'2.1.3',date:'2026-11-18',title:'Security hours on Edit price',items:[
   'Edit price now has the same Security Guard hours box as New booking: enter the hours and the amount is set to hours times $30. A booking that already has a security amount shows its hours.'
  ]},

@@ -1,17 +1,19 @@
-import {mountBookingActions,openBookingAction} from './booking-actions.mjs?v=2.1.3';
-import {bookingTransactions,transactionActions} from './transaction-actions.mjs?v=2.1.3';
-import {transactionSheet} from './transaction-sheet.mjs?v=2.1.3';
-import {warmDocuments} from './documents-lifecycle.mjs?v=2.1.3';
-import {contractAllowed,refreshContractCard} from './document-state.mjs?v=2.1.3';
-import {bookingRowBuilder,dueDate,rowVariant} from './booking-row.mjs?v=2.1.3';
-import {mountDocuments,contractSheet,downloadDocument,receiptRow,issueReceiptWithProgress} from './documents-ui.mjs?v=2.1.3';
+import {isReferenceDetail} from './document-email-ui.mjs?v=2.2.0';
+import {mountBookingActions,openBookingAction} from './booking-actions.mjs?v=2.2.0';
+import {bookingTransactions,transactionActions} from './transaction-actions.mjs?v=2.2.0';
+import {transactionSheet} from './transaction-sheet.mjs?v=2.2.0';
+import {warmDocuments} from './documents-lifecycle.mjs?v=2.2.0';
+import {contractAllowed,refreshContractCard} from './document-state.mjs?v=2.2.0';
+import {bookingRowBuilder,dueDate,rowVariant} from './booking-row.mjs?v=2.2.0';
+import {mountDocuments,contractSheet,downloadDocument,receiptRow,issueReceiptWithProgress} from './documents-ui.mjs?v=2.2.0';
 const rentalText=w=>!w?'—':typeof w==='string'?w:[w.start,w.end].map(t=>t==='00:00'?'Midnight':`${Number(t.slice(0,2))%12||12}:${t.slice(3)} ${Number(t.slice(0,2))<12?'AM':'PM'}`).join(' – ');
-import {commandSheet} from './command-sheet.mjs?v=2.1.3';
-import {readStates} from './read-states.mjs?v=2.1.3';
-import {mountLockedBehavior} from './locked-behaviors.mjs?v=2.1.3';
-import {money,balance} from './adapter.mjs?v=2.1.3';
-import {availableDay} from './calendar-parts.mjs?v=2.1.3';
-import {dayPrice,securityCost,SECURITY_HOURLY} from './day-price.mjs?v=2.1.3';
+import {commandSheet} from './command-sheet.mjs?v=2.2.0';
+import {readStates} from './read-states.mjs?v=2.2.0';
+import {mountLockedBehavior} from './locked-behaviors.mjs?v=2.2.0';
+import {money,balance} from './adapter.mjs?v=2.2.0';
+import {availableDay} from './calendar-parts.mjs?v=2.2.0';
+import {dayPrice,securityCost,SECURITY_HOURLY} from './day-price.mjs?v=2.2.0';
+import {DEPOSIT_AMOUNT} from './attention-rules.mjs?v=2.2.0';
 const $=id=>document.getElementById(id);
 const val=id=>$(id).value;
 const number=id=>Number(val(id));
@@ -141,7 +143,7 @@ export async function mountFlows({api,route,go,toast,closeSheet}){
  mountLockedBehavior(screen,api,route,toast,r);
  if(screen==='booking'){await mountDocuments(api,route.id,toast);document.querySelectorAll('.timeline button').forEach((button,i)=>{button.dataset.transactionId||=r.payments.slice().reverse()[i]?.id||'';});}
  if(screen==='booking'){
-  mountBookingActions(r,r.id==='sophia'&&r.revision===api.original(r.id)?.revision&&r.date===api.original(r.id)?.date&&r.client===api.original(r.id)?.client);
+  mountBookingActions(r,isReferenceDetail(api,r));
   const transactions=(r.id==='sophia'&&r.revision===api.original('sophia').revision?r.payments.map(t=>({...t,category:'payment'})):bookingTransactions(r)).slice().reverse();
   document.querySelectorAll('.timeline-content').forEach((row,i)=>{const t=transactions[i];if(t){row.querySelector('button').dataset.transactionId=t.id;mountTransactionActions(row,api,r,t.id,toast,go,true);}});
  }
@@ -157,7 +159,7 @@ export async function mountFlows({api,route,go,toast,closeSheet}){
     const securityHours=Number($('securityHours')?.value),securityOn=$('extraSecurity').checked;
     const extras=standard.filter(n=>$('extra'+n).checked).map(n=>({key:n.toLowerCase(),label:n,amount:n==='Security'?securityCost(securityHours):api.intakeRates[n.toLowerCase()]}));
     const total=api.priceLines({hall:number('newHallPrice'),extras,discount:0}).total;
-    const created=await api.createBooking({client:val('guestName'),phone:val('guestPhone'),date:val('eventDate'),type:val('eventType'),total,paid:number('initialPaid'),paymentDate:api.today,method:val('initialMethod'),...(securityOn?{notes:'Security guard: '+securityHours+' hrs @ $'+SECURITY_HOURLY+'/hr ($'+securityCost(securityHours).toFixed(2)+').'}:{}),...Object.fromEntries(standard.map(n=>[n.toLowerCase(),$('extra'+n).checked]))},{lines:{hall:number('newHallPrice'),extras,discount:0},depositStatus:val('depositStatus'),email:val('guestEmail'),guestCount:number('guestCount')});
+    const created=await api.createBooking({client:val('guestName'),phone:val('guestPhone'),date:val('eventDate'),type:val('eventType'),total,paid:number('initialPaid'),paymentDate:api.today,method:val('initialMethod'),...($('depositStatus').value==='Owed'?{deposit:'Owed'}:{}),...(securityOn?{notes:'Security guard: '+securityHours+' hrs @ $'+SECURITY_HOURLY+'/hr ($'+securityCost(securityHours).toFixed(2)+').'}:{}),...Object.fromEntries(standard.map(n=>[n.toLowerCase(),$('extra'+n).checked]))},{lines:{hall:number('newHallPrice'),extras,discount:0},depositStatus:val('depositStatus'),email:val('guestEmail'),guestCount:number('guestCount')});
     go('#/booking/'+created.id);
    }
   }catch(error){toast(error.message);if(api.mode==='http'){const state=readStates({states:await api.presentation('states')},()=>e.target.requestSubmit());const banner=state.show('error');e.target.prepend(banner);banner.querySelector('p').textContent=error.message;banner.querySelector('strong')?.replaceChildren(document.createTextNode(error.status===409?'Booking changed. Review the refreshed data before retrying.':'Unable to save. Your form values are kept.'));if(error.status===409){const current=await api.detail(route.id);r=current;banner.querySelector('p').textContent=error.message+' Latest agreed: '+money(current.financialTotal)+'; paid: '+money(current.paid)+'; balance: '+money(current.balance)+'. Review before retrying.';}}}
@@ -203,6 +205,7 @@ export async function mountFlows({api,route,go,toast,closeSheet}){
   const hall=$('newHallPrice');let hallEdited=false;
   // Start clean. The locked mock-up carries demo numbers ($3,200 hall price, three ticked extras, a $1,000 down payment); a real booking starts empty
   // and the hall price comes from the day. The down payment stays empty unless staff enter an amount.
+  $('depositStatus').value='Owed';                       // nothing is recorded as received unless staff choose Received & Held
   hall.value='';$('initialPaid').value='';for(const n of ['Covers','Projector','Audio','Security'])$('extra'+n).checked=false;
   hall.dispatchEvent(new Event('input',{bubbles:true}));
   // Security guard: when ticked, ask for the hours. The cost is hours x $30/hr and the total follows.
@@ -387,9 +390,14 @@ async function mountHttpOverview(api){
  const values=document.querySelectorAll('.stat-value');values[0].textContent='$'+data.balance.toLocaleString('en-US');values[1].textContent='$'+data.novemberPayments.toLocaleString('en-US');values[2].textContent=data.novemberEvents+' events';
  const list=document.querySelector('.triage-list'),templates=[...list.children].map(n=>n.cloneNode(true));
  const order=['overdue','price','past','deposit','reconcile'],expected={overdue:'sophia',price:'devon',past:'elena',deposit:'sophia',reconcile:'elena'};
- const nodes=[];for(const kind of order)for(const item of attention.filter(a=>a.kind===kind)){
-  const row=templates[order.indexOf(kind)].cloneNode(true),r=item.record||await api.detail(item.id),old=api.original(expected[kind]);
-  if(!old||item.id!==expected[kind]||['client','date','type','contract','total','paid','due','depositHeld','importedDifference'].some(key=>key==='importedDifference'?(r[key]||0)!==(old[key]||0):r[key]!==old[key])){const heading=row.querySelector('h5'),suffix=kind==='deposit'?' ('+money(r.depositHeld)+' refundable)':kind==='reconcile'?' ('+(r.importedDifference>0?'+':'-')+money(Math.abs(r.importedDifference))+' diff)':kind==='overdue'?' ('+money(r.balance)+' due)':'';heading.textContent=heading.textContent.split(' · ')[0]+' · '+r.client+suffix;row.querySelector('p').textContent=r.date+' · '+r.type+' · '+(r.contract||'—');}
+ // Team reminders reuse the existing rows (same look, different wording): balance alerts use the overdue row, the deposit alert uses the deposit row.
+ const display=['deadline','overdue','due','depositDue','price','past','deposit','reconcile'],templateKind={deadline:'overdue',due:'overdue',depositDue:'deposit'},labels={deadline:'Final balance deadline',due:'Balance due today',depositDue:'Security deposit not received'};
+ const nodes=[];for(const kind of display)for(const item of attention.filter(a=>a.kind===kind)){
+  const tk=templateKind[kind]||kind;
+  const row=templates[order.indexOf(tk)].cloneNode(true),r=item.record||await api.detail(item.id),old=api.original(expected[tk]);
+  // The frozen sample booking (unchanged) keeps its locked "Overdue" row; every other booking gets the reminder wording.
+  const legacyRef=(kind==='deadline'||kind==='due')&&!!old&&item.id===expected[tk]&&!['client','date','type','contract','total','paid','due','depositHeld','importedDifference'].some(key=>key==='importedDifference'?(r[key]||0)!==(old[key]||0):r[key]!==old[key]);
+  if(!old||item.id!==expected[tk]||(labels[kind]&&!legacyRef)||['client','date','type','contract','total','paid','due','depositHeld','importedDifference'].some(key=>key==='importedDifference'?(r[key]||0)!==(old[key]||0):r[key]!==old[key])){const heading=row.querySelector('h5'),suffix=kind==='depositDue'?' ('+money(DEPOSIT_AMOUNT)+' due)':kind==='deposit'?' ('+money(r.depositHeld)+' refundable)':kind==='reconcile'?' ('+(r.importedDifference>0?'+':'-')+money(Math.abs(r.importedDifference))+' diff)':kind==='overdue'||kind==='due'||kind==='deadline'?' ('+money(r.balance)+' due)':'';heading.textContent=(labels[kind]||heading.textContent.split(' · ')[0])+' · '+r.client+suffix;row.querySelector('p').textContent=r.date+' · '+r.type+' · '+(r.contract||'—');}
   if(old)replaceMoney(row,[[old.total,r.total],[old.paid,r.paid],[balance(old),r.balance],[old.depositHeld,r.depositHeld]]);
   const target=row.querySelector('a');if(target)target.href=item.target||'#/booking/'+r.id;const settle=row.querySelector('[data-action="overview-0"]');if(settle)settle.dataset.bookingId=r.id;
   nodes.push(row);

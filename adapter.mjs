@@ -1,8 +1,12 @@
-import {fixtureDocuments} from './document-preview.mjs?v=2.1.3';
+import {balanceDueDate} from './due-date.mjs?v=2.2.0';
+import {balanceAlert,depositAlert,depositOwed} from './attention-rules.mjs?v=2.2.0';
+// The frozen sample ledger keeps its original look: reminders only apply to bookings that are not an unchanged sample row.
+const isFrozenSample=(originalRows,r)=>{const o=originalRows.find(x=>x.id===r.id);return !!o&&r.revision===o.revision;};
+import {fixtureDocuments} from './document-preview.mjs?v=2.2.0';
 // In-memory synthetic adapter; optional contact and rental fields live in engine records.
-import seed from './fixtures.mjs?v=2.1.3';
-import {displayMetadata} from './display-fixtures.mjs?v=2.1.3';
-import {engine,Ledger} from './engine.mjs?v=2.1.3';
+import seed from './fixtures.mjs?v=2.2.0';
+import {displayMetadata} from './display-fixtures.mjs?v=2.2.0';
+import {engine,Ledger} from './engine.mjs?v=2.2.0';
 const clone=v=>JSON.parse(JSON.stringify(v));
 export const money=n=>'$'+Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 export const balance=r=>r.financialTotal==null?null:Math.max(0,Math.round((r.financialTotal-r.paid)*100)/100);
@@ -18,7 +22,7 @@ export function createLedgerApi(presentation,initial=seed){
   if(archived==='1'&&(query||from||to))throw Error('The Archived view cannot be combined with search or a date range.');
   let rows=state.records.filter(r=>Boolean(r.archived)===(archived==='1')&&(!query||[r.client,r.phone,r.contract].join(' ').toLowerCase().includes(query)));
   if(from)rows=rows.filter(r=>r.date>=from);if(to)rows=rows.filter(r=>r.date<=to);
-  rows=rows.filter(r=>filter==='all'||filter==='due'&&balance(r)>0&&!r.cancelled||filter==='attention'&&(needsPrice(r)||r.importedDifference||r.due&&r.due<initial.TODAY&&balance(r)>0||r.date<initial.TODAY&&r.type!=='Blackout'||r.depositHeld>0)&&!r.settled||filter==='upcoming'&&r.date>=initial.TODAY&&!r.cancelled||filter==='past'&&r.date<initial.TODAY||filter==='cancelled'&&r.cancelled||filter==='settled'&&r.settled);
+  rows=rows.filter(r=>filter==='all'||filter==='due'&&balance(r)>0&&!r.cancelled||filter==='attention'&&(needsPrice(r)||r.importedDifference||r.due&&r.due<initial.TODAY&&balance(r)>0||(balanceAlert({...r,balance:balance(r)},initial.TODAY)||depositAlert({...r,depositOwed:depositOwed(r)},initial.TODAY))&&!isFrozenSample(original,r)||r.date<initial.TODAY&&r.type!=='Blackout'||r.depositHeld>0)&&!r.settled||filter==='upcoming'&&r.date>=initial.TODAY&&!r.cancelled||filter==='past'&&r.date<initial.TODAY||filter==='cancelled'&&r.cancelled||filter==='settled'&&r.settled);
   if(sort==='date')rows.sort((a,b)=>a.date.localeCompare(b.date));
   if(sort==='guest')rows.sort((a,b)=>a.client.localeCompare(b.client));
   if(sort==='balance')rows.sort((a,b)=>(balance(b)||0)-(balance(a)||0));
@@ -31,7 +35,7 @@ export function createLedgerApi(presentation,initial=seed){
   ].map(t=>({...t,voided:r.voids.some(v=>v.targetId===t.id),bookingId:r.id,client:r.client,contract:r.contract,eventType:r.type,displayClient:displayMetadata[r.id]?.registerGuest,reference:displayMetadata[r.id]?.registerReferences?.[t.id]}))).filter(t=>(kind==='all'||kind===t.kind)&&(method==='all'||t.method===method)&&(!q||[t.client,t.contract,t.note,t.method].join(' ').toLowerCase().includes(q.toLowerCase()))).sort((a,b)=>b.date.localeCompare(a.date));
  }
  function summary(){return {...engine.summary(state.records),novemberPayments:payments().filter(t=>t.kind==='payment'&&t.date.startsWith('2026-11')).reduce((n,t)=>n+t.amount,0),novemberEvents:state.records.filter(r=>r.type!=='Blackout'&&!r.cancelled&&r.date.startsWith('2026-11')).length};}
- function attention(){return clone(state.records.flatMap(r=>r.settled||r.archived?[]:[...(needsPrice(r)?[{id:r.id,kind:'price'}]:[]),...(r.due&&r.due<initial.TODAY&&balance(r)>0?[{id:r.id,kind:'overdue'}]:[]),...(r.date<initial.TODAY&&r.type!=='Blackout'?[{id:r.id,kind:'past'}]:[]),...(r.depositHeld?[{id:r.id,kind:'deposit'}]:[]),...(r.importedDifference?[{id:r.id,kind:'reconcile'}]:[])]));}
+ function attention(){return clone(state.records.flatMap(r=>r.settled||r.archived?[]:[...(needsPrice(r)?[{id:r.id,kind:'price'}]:[]),...(!isFrozenSample(original,r)&&balanceAlert({...r,balance:balance(r)},initial.TODAY)?[{id:r.id,kind:balanceAlert({...r,balance:balance(r)},initial.TODAY)}]:r.due&&r.due<initial.TODAY&&balance(r)>0?[{id:r.id,kind:'overdue'}]:[]),...(!isFrozenSample(original,r)&&depositAlert({...r,depositOwed:depositOwed(r)},initial.TODAY)?[{id:r.id,kind:'depositDue'}]:[]),...(r.date<initial.TODAY&&r.type!=='Blackout'?[{id:r.id,kind:'past'}]:[]),...(r.depositHeld?[{id:r.id,kind:'deposit'}]:[]),...(r.importedDifference?[{id:r.id,kind:'reconcile'}]:[])]));}
  function insights(year='2026'){
   const rows=engine.initial(initial.annualBookings.filter(r=>year==='all'||r.date.startsWith(String(year)))).records;
   const totals=engine.summary(rows);return {...totals,count:rows.length,months:Array.from({length:12},(_,m)=>rows.filter(r=>Number(r.date.slice(5,7))===m+1).reduce((n,r)=>n+r.total,0)),types:rows.reduce((a,r)=>(a[r.type]=(a[r.type]||0)+1,a),{}),weekdays:rows.reduce((a,r)=>{const d=new Date(r.date+'T12:00:00Z').getUTCDay();a[d]=(a[d]||0)+1;return a;},{})};
@@ -62,7 +66,7 @@ export function createLedgerApi(presentation,initial=seed){
   intakeRates,newExtraAmount:100,
   createBooking(values,metadata){
    const previous=state;const previousSequence=sequence;
-   if(!values.due){const due=new Date(values.date+'T12:00:00Z');if(Number.isFinite(+due)){due.setUTCDate(due.getUTCDate()-20);values={...values,due:due.toISOString().slice(0,10)};}}
+   if(!values.due&&/^\d{4}-\d{2}-\d{2}$/.test(values.date||'')&&Number.isFinite(+new Date(values.date+'T12:00:00Z')))values={...values,due:balanceDueDate(values.date,initial.TODAY)};
    try{
     const made=commands('create',null,{...values,...Object.fromEntries(['email','guestCount','rentalWindow'].filter(k=>metadata[k]!==undefined).map(k=>[k,metadata[k]]))});
     commands('edit',made.id,{lines:metadata.lines,reason:'Initial fictional itemized price'});

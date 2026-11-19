@@ -1,16 +1,18 @@
-import paymentScreen from './screens/record-payment.mjs?v=2.1.3';
+import paymentScreen from './screens/record-payment.mjs?v=2.2.0';
 
 const opening = new WeakSet();
 const explanations = {
  reschedule: 'Price and payments stay exactly as they are.',
  archive: 'Archiving hides this cancelled booking from Bookings and Needs attention. Nothing is deleted or changed. You can bring it back from Archived.',
  unarchive: 'This cancelled booking will appear in Bookings again.',
+ contact: 'Update the customer\'s phone number or email. The price, date and payments stay exactly as they are. Saved contracts and receipts keep the old details.',
  block: 'A blocked date stays off the calendar for new bookings (for example maintenance or an owner hold). Nothing is charged. You can move or release it later.'
 };
 const savedCopiesNote = 'Saved contracts and receipts keep the old date. Prepare a new contract if the client needs one.';
 
 export function bookingActionLabel(action, record) {
  if (action === 'block') return 'Block a date';
+ if (action === 'contact') return 'Edit contact info';
  if (action === 'reschedule') return record.type === 'Blackout' ? 'Move blocked date' : 'Change date';
  return action === 'archive' ? 'Archive' : 'Unarchive';
 }
@@ -45,6 +47,11 @@ export function mountBookingActions(record, referenceDetail) {
  } else if (!record.archived) {
   bar.before(button);
  }
+ if (record.type !== 'Blackout') {
+  const contact = bookingActionButton('contact', record, referenceDetail ? 'more-menu-item' : 'btn btn-quiet');
+  if (referenceDetail) bar.querySelector('.more-menu-divider').before(contact);
+  else bar.before(contact);
+ }
  if (record.archived) {
   const note = document.createElement('p');
   note.className = 'card-subtitle';
@@ -62,7 +69,9 @@ export async function openBookingAction({api,id,action,opener,go}) {
   const blocking = action === 'block';                       // creates a new blocked date; there is no booking yet
   const record = blocking ? {client:'',date:'',type:'Blackout'} : await api.detail(id);
   const allowed = record.archived ? 'unarchive' : record.cancelled ? 'archive' : 'reschedule';
-  if (!blocking && action !== allowed) throw Error('This action is no longer available. Refresh the booking and try again.');
+  const contacting = action === 'contact';
+  if (contacting && record.type === 'Blackout') throw Error('Blocked dates have no contact details.');
+  if (!blocking && !contacting && action !== allowed) throw Error('This action is no longer available. Refresh the booking and try again.');
   const moving = action === 'reschedule';
   const copies = moving && api.documentsEnabled !== false
    ? await api.documents(id).catch(error => { if (api.documentsEnabled !== false) throw error; return []; })
@@ -98,7 +107,7 @@ export async function openBookingAction({api,id,action,opener,go}) {
    form.append(element);
    return element;
   }
-  function field(id, label, type) {
+  function field(id, label, type, required = true, value = '') {
    const group = document.createElement('div');
    group.className = 'form-group';
    const caption = document.createElement('label');
@@ -109,7 +118,8 @@ export async function openBookingAction({api,id,action,opener,go}) {
    input.id = id;
    input.className = 'form-input';
    input.type = type;
-   input.required = true;
+   input.required = required;
+   input.value = value;
    input.style.minHeight = 'var(--touch-target-min)';
    group.append(caption,input);
    form.append(group);
@@ -123,7 +133,11 @@ export async function openBookingAction({api,id,action,opener,go}) {
    date.setAttribute('aria-describedby',status.id);
    status.setAttribute('role','status');
   }
-  const reason = field('bookingActionReason',blocking ? 'What is this for? (shown as the name of the blocked date)' : 'Reason for this change','text');
+  const phone = contacting ? field('bookingActionPhone','Phone number','tel',false,record.phone || '') : null;
+  const email = contacting ? field('bookingActionEmail','Email','email',false,record.email || '') : null;
+  if (phone) { phone.maxLength = 40; phone.autocomplete = 'tel'; }
+  if (email) { email.maxLength = 254; email.autocomplete = 'email'; email.setAttribute('inputmode','email'); }
+  const reason = field('bookingActionReason',blocking ? 'What is this for? (shown as the name of the blocked date)' : contacting ? 'Reason (optional)' : 'Reason for this change','text',!contacting);
   reason.maxLength = blocking ? 150 : 500;
   const error = document.createElement('p');
   error.className = 'alert alert-danger';
@@ -199,15 +213,15 @@ export async function openBookingAction({api,id,action,opener,go}) {
    event.stopPropagation();
    if (pending || !form.reportValidity()) return;
    const trimmedReason = reason.value.trim();
-   if (!trimmedReason) {
+   if (!trimmedReason && !contacting) {
     reason.setCustomValidity('Enter a reason.');
     reason.reportValidity();
     return;
    }
-   const values = moving ? {date:date.value,reason:trimmedReason} : {reason:trimmedReason};
+   const values = contacting ? {phone:phone.value.trim(),email:email.value.trim(),...(trimmedReason ? {reason:trimmedReason} : {})} : moving ? {date:date.value,reason:trimmedReason} : {reason:trimmedReason};
    const blockValues = {client:trimmedReason,phone:'',type:'Blackout',date:blocking ? date.value : '',total:0,paid:0,notes:trimmedReason};
    pending = true;
-   for (const control of [submit,cancel,close,reason,date].filter(Boolean)) control.disabled = true;
+   for (const control of [submit,cancel,close,reason,date,phone,email].filter(Boolean)) control.disabled = true;
    form.setAttribute('aria-busy','true');
    error.style.display = 'none';
    try {
@@ -215,19 +229,19 @@ export async function openBookingAction({api,id,action,opener,go}) {
     if (!modal.isConnected) return;
     cleanup();
     if (blocking) { go('#/calendar','Date blocked.'); return; }
-    const message = moving ? (record.type === 'Blackout' ? 'Blocked date moved.' : 'Booking date changed.') : action === 'archive' ? 'Booking archived.' : 'Booking unarchived.';
+    const message = contacting ? 'Contact info updated.' : moving ? (record.type === 'Blackout' ? 'Blocked date moved.' : 'Booking date changed.') : action === 'archive' ? 'Booking archived.' : 'Booking unarchived.';
     go('#/booking/'+encodeURIComponent(id),message);
    } catch (failure) {
     error.textContent = failure.message;
     error.style.removeProperty('display');
    } finally {
     pending = false;
-    for (const control of [submit,cancel,close,reason,date].filter(Boolean)) control.disabled = false;
+    for (const control of [submit,cancel,close,reason,date,phone,email].filter(Boolean)) control.disabled = false;
     form.removeAttribute('aria-busy');
    }
   };
   body.append(modal);
-  (date || reason).focus();
+  (date || phone || reason).focus();
  } finally {
   opening.delete(api);
  }

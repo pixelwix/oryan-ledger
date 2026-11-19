@@ -254,6 +254,21 @@ const BetaLedger = (() => {
           if(r.settled)r.settled=null;
           break;
         }
+        case 'contact': {
+          // Phone number and email only. Nothing else changes: not the price, date, extras, payments, or the contract status.
+          allowed(v,['phone','email','reason']);
+          if(v.phone===undefined&&v.email===undefined)throw Error('Enter a phone number or an email.');
+          const before={phone:r.phone||'',email:r.email||''};
+          if(v.phone!==undefined){
+            if(typeof v.phone!=='string')throw Error('Invalid phone number.');
+            const phone=Ledger.text(v.phone,40);if(/[\x00-\x1f\x7f<>]/.test(phone))throw Error('Invalid phone number.');
+            r.phone=phone;
+          }
+          if(v.email!==undefined)Object.assign(r,bookingExtras({email:v.email}));
+          if((r.phone||'')===before.phone&&(r.email||'')===before.email)throw Error('Nothing changed.');
+          if(v.reason!==undefined&&String(v.reason).trim())reason(v.reason);   // the reason is optional for contact details
+          break;
+        }
         case 'archive': {
           // Display-only, like settled: no money changes. Only cancelled records with nothing owed either way.
           allowed(v,['reason']);reason(v.reason);

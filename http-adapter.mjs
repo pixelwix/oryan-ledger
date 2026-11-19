@@ -1,7 +1,9 @@
-import {businessToday,localTodayOverride} from './business-date.mjs?v=2.1.3';
+import {balanceDueDate} from './due-date.mjs?v=2.2.0';
+import {balanceAlert,depositAlert} from './attention-rules.mjs?v=2.2.0';
+import {businessToday,localTodayOverride} from './business-date.mjs?v=2.2.0';
 // HTTP is the sole data source in this adapter. Fixture adapter is presentation/price
 // helpers only; no read fallback and no Stage 3 command transport.
-import {createLedgerApi,balance} from './adapter.mjs?v=2.1.3';
+import {createLedgerApi,balance} from './adapter.mjs?v=2.2.0';
 export function localWorkerOrigin(value){const url=new URL(value);if(url.protocol!=='http:'||!['localhost','127.0.0.1','[::1]'].includes(url.hostname)||url.username||url.password||url.pathname!=='/'||url.search||url.hash)throw Error('Worker must be a loopback HTTP origin.');return url.origin;}
 export function hostedOrigin(value){const url=new URL(value);if(url.protocol!=='https:'||url.username||url.password||url.pathname!=='/'||url.search||url.hash)throw Error('Worker must be an exact https origin.');return url.origin;}
 export function createHttpLedgerApi(presentation,{origin,timeout=4000,retries=1,fetcher=fetch,onState=()=>{},auth=null,trustedOrigin=false,today,pageOrigin=globalThis.location?.origin,clock=()=>new Date()}){
@@ -36,9 +38,9 @@ export function createHttpLedgerApi(presentation,{origin,timeout=4000,retries=1,
   onState('error');throw Error(error?.name==='AbortError'?'Ledger request timed out.':error?.message||'Unable to load ledger.');
  }
  const normalize=r=>({...r,client:r.guest??r.client,total:r.originalPrice??(r.flags?.needsPrice?null:r.agreedPrice),financialTotal:r.agreedPrice,settled:r.status==='Settled'||!!r.settled,cancelled:r.status==='Cancelled'||!!r.cancelled});
- async function post(path,body,callTimeout=timeout,retryAuth=true){
+ async function post(path,body,callTimeout=timeout,retryAuth=true,extraHeaders={}){
   for(let reauth=0;;reauth++){
-  const headers={'Content-Type':'application/json',...await authHeaders()};
+  const headers={'Content-Type':'application/json',...extraHeaders,...await authHeaders()};
   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),callTimeout);
   try{const response=await fetcher(new URL(path,origin),{method:'POST',body:JSON.stringify(body),headers,credentials:'omit',cache:'no-store',signal:controller.signal});
    if(auth&&(response.status===401||response.status===403)){const e=await authFailure(response);if(retryAuth&&response.status===401&&reauth<1)continue;throw e;}
@@ -61,8 +63,14 @@ export function createHttpLedgerApi(presentation,{origin,timeout=4000,retries=1,
   if(type==='markSettled')values={cutoff:getToday(),...values};
   return save({type,bookingId:id,expectedRevision:r?.revision,values});
  }
+ // The frozen sample ledger keeps its original look: an unchanged sample row never gets the new reminders.
+ function frozenSample(r){
+  const o=typeof helpers.original==='function'?helpers.original(r.id):null;
+  // Unchanged means every field we can see equals the sample (fields a row does not carry are ignored).
+  return !!o&&['client','date','type','contract','total','paid','due','depositHeld'].every(k=>r[k]===undefined||r[k]===o[k]);
+ }
  async function createBooking(values,metadata){
-  if(!values.due){const d=new Date(values.date+'T12:00:00Z');d.setUTCDate(d.getUTCDate()-20);values={...values,due:d.toISOString().slice(0,10)};}
+  if(!values.due&&/^\d{4}-\d{2}-\d{2}$/.test(values.date||''))values={...values,due:balanceDueDate(values.date,getToday())};
   values={...values,...Object.fromEntries(['email','guestCount','rentalWindow'].filter(k=>metadata[k]!==undefined).map(k=>[k,metadata[k]]))};
   const fields=['client','phone','type','date','due','covers','projector','audio','bar','security','notes'];
   const batch=[{type:'create',values},{type:'edit',bookingId:'$created',values:{...Object.fromEntries(fields.filter(k=>values[k]!==undefined).map(k=>[k,values[k]])),contract:'',lines:metadata.lines,reason:'Initial itemized price'}}];
@@ -74,7 +82,7 @@ export function createHttpLedgerApi(presentation,{origin,timeout=4000,retries=1,
  }
  async function list({q='',filter='all',sort='date',from='',to='',archived=''}={}){
   let rows=(await get('/bookings',{q:q.trim()||undefined,from:from||undefined,to:to||undefined,archived:archived||undefined})).records.map(normalize);
-  rows=rows.filter(r=>filter==='all'||filter==='due'&&r.balance>0&&!r.cancelled||filter==='attention'&&(r.flags?.needsPrice||r.importedDifference||r.due&&r.due<getToday()&&r.balance>0||r.date<getToday()&&r.type!=='Blackout'||r.flags?.depositHeld)&&!r.settled||filter==='upcoming'&&r.date>=getToday()&&!r.cancelled||filter==='past'&&r.date<getToday()||filter==='cancelled'&&r.cancelled||filter==='settled'&&r.settled);
+  rows=rows.filter(r=>filter==='all'||filter==='due'&&r.balance>0&&!r.cancelled||filter==='attention'&&(r.flags?.needsPrice||r.importedDifference||r.due&&r.due<getToday()&&r.balance>0||(balanceAlert(r,getToday())||depositAlert({...r,depositOwed:r.flags?.depositOwed},getToday()))&&!frozenSample(r)||r.date<getToday()&&r.type!=='Blackout'||r.flags?.depositHeld)&&!r.settled||filter==='upcoming'&&r.date>=getToday()&&!r.cancelled||filter==='past'&&r.date<getToday()||filter==='cancelled'&&r.cancelled||filter==='settled'&&r.settled);
   return rows.sort(sort==='guest'?(a,b)=>a.client.localeCompare(b.client):sort==='balance'?(a,b)=>(b.balance||0)-(a.balance||0):(a,b)=>a.date.localeCompare(b.date));
  }
  async function payments(params={}){let out=[],offset=0;for(;;){const page=await get('/payments',{...params,offset,limit:500});out=out.concat(page.records);if(out.length>=page.summary.count)return out;offset+=500;if(offset>50000)throw Error('Narrow the payment search.');}}
@@ -89,6 +97,7 @@ export function createHttpLedgerApi(presentation,{origin,timeout=4000,retries=1,
   documents:async bookingId=>(await request('/documents',{bookingId})).documents,
   createContract:async(id,values,requestId)=>post('/documents/contract',{bookingId:id,expectedRevision:(await detail(id)).revision,values,requestId},timeout,false),
   issueReceipt:(bookingId,requestId)=>post('/documents/receipt',{bookingId,requestId},timeout),
+  emailDocument:(id,to,requestId)=>post('/documents/'+encodeURIComponent(id)+'/email',{to},45000,false,{'Idempotency-Key':requestId}),
   retryDocument:id=>post('/documents/'+encodeURIComponent(id)+'/retry',{},timeout,false),
   async downloadDocument(id){const response=await fetcher(new URL('/documents/'+encodeURIComponent(id)+'/download',origin),{headers:await authHeaders(),credentials:'omit',cache:'no-store'});if(auth&&(response.status===401||response.status===403))throw await authFailure(response);if(!response.ok||!response.headers.get('Content-Type')?.startsWith('application/pdf'))throw Error('Document download unavailable.');return {preview:response.headers.get('X-Document-Preview')==='true',blob:await response.blob(),filename:decodeURIComponent(response.headers.get('Content-Disposition')?.split("UTF-8''")[1]||'Document.pdf')};},
   async ics(id){const r=await this.detail(id);return bookingIcs(r);}
