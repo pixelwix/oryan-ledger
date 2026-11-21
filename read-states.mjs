@@ -1,4 +1,4 @@
-import states,{styles} from './screens/states.mjs?v=2.4.0';
+import states,{styles} from './screens/states.mjs?v=2.5.0';
 export function readStates(presentation,retry){
  const sample=document.createElement('div');sample.innerHTML=states(presentation.states);
  const sections=sample.querySelectorAll('.state-section');

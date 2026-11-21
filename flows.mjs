@@ -1,21 +1,22 @@
-import {calendarIcs} from './calendar-export.mjs?v=2.4.0';
-import {downloadBlob} from './ledger-export.mjs?v=2.4.0';
-import {isReferenceDetail} from './document-email-ui.mjs?v=2.4.0';
-import {mountBookingActions,openBookingAction} from './booking-actions.mjs?v=2.4.0';
-import {bookingTransactions,transactionActions} from './transaction-actions.mjs?v=2.4.0';
-import {transactionSheet} from './transaction-sheet.mjs?v=2.4.0';
-import {warmDocuments} from './documents-lifecycle.mjs?v=2.4.0';
-import {contractAllowed,refreshContractCard} from './document-state.mjs?v=2.4.0';
-import {bookingRowBuilder,dueDate,rowVariant} from './booking-row.mjs?v=2.4.0';
-import {mountDocuments,contractSheet,downloadDocument,receiptRow,issueReceiptWithProgress} from './documents-ui.mjs?v=2.4.0';
+import {mountSquare} from './square-ui.mjs?v=2.5.0';
+import {calendarIcs} from './calendar-export.mjs?v=2.5.0';
+import {downloadBlob} from './ledger-export.mjs?v=2.5.0';
+import {isReferenceDetail} from './document-email-ui.mjs?v=2.5.0';
+import {mountBookingActions,openBookingAction} from './booking-actions.mjs?v=2.5.0';
+import {bookingTransactions,transactionActions} from './transaction-actions.mjs?v=2.5.0';
+import {transactionSheet} from './transaction-sheet.mjs?v=2.5.0';
+import {warmDocuments} from './documents-lifecycle.mjs?v=2.5.0';
+import {contractAllowed,refreshContractCard} from './document-state.mjs?v=2.5.0';
+import {bookingRowBuilder,dueDate,rowVariant} from './booking-row.mjs?v=2.5.0';
+import {mountDocuments,contractSheet,downloadDocument,receiptRow,issueReceiptWithProgress} from './documents-ui.mjs?v=2.5.0';
 const rentalText=w=>!w?'—':typeof w==='string'?w:[w.start,w.end].map(t=>t==='00:00'?'Midnight':`${Number(t.slice(0,2))%12||12}:${t.slice(3)} ${Number(t.slice(0,2))<12?'AM':'PM'}`).join(' – ');
-import {commandSheet} from './command-sheet.mjs?v=2.4.0';
-import {readStates} from './read-states.mjs?v=2.4.0';
-import {mountLockedBehavior} from './locked-behaviors.mjs?v=2.4.0';
-import {money,balance} from './adapter.mjs?v=2.4.0';
-import {availableDay} from './calendar-parts.mjs?v=2.4.0';
-import {dayPrice,securityCost,SECURITY_HOURLY} from './day-price.mjs?v=2.4.0';
-import {DEPOSIT_AMOUNT} from './attention-rules.mjs?v=2.4.0';
+import {commandSheet} from './command-sheet.mjs?v=2.5.0';
+import {readStates} from './read-states.mjs?v=2.5.0';
+import {mountLockedBehavior} from './locked-behaviors.mjs?v=2.5.0';
+import {money,balance} from './adapter.mjs?v=2.5.0';
+import {availableDay} from './calendar-parts.mjs?v=2.5.0';
+import {dayPrice,securityCost,SECURITY_HOURLY} from './day-price.mjs?v=2.5.0';
+import {DEPOSIT_AMOUNT} from './attention-rules.mjs?v=2.5.0';
 const $=id=>document.getElementById(id);
 const val=id=>$(id).value;
 const number=id=>Number(val(id));
@@ -136,6 +137,7 @@ function openPaymentPicker(api,go,opener){
  actions.append(cancel);body.append(search,list,actions);dialog.append(header,body);backdrop.append(dialog);document.body.append(backdrop);document.addEventListener('keydown',key,true);search.focus();load();
 }
 export async function mountFlows({api,route,go,toast,closeSheet}){
+ if(['booking','payments'].includes(route.screen))mountSquare({api,screen:route.screen,route,toast,go}).catch(()=>{});
  if(route.screen==='record-payment')warmDocuments(api);
  const mountBody=document.body;
  const screen=route.screen;let r,saving=false;

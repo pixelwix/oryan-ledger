@@ -1,7 +1,7 @@
-import {reminderEligible,reminderFields,reminderMessage_} from './reminder-message.mjs?v=2.4.0';
-import {validDocumentEmail} from './document-email-address.mjs?v=2.4.0';
-import {downloadBlob} from './ledger-export.mjs?v=2.4.0';
-import paymentScreen from './screens/record-payment.mjs?v=2.4.0';
+import {reminderEligible,reminderFields,reminderMessage_} from './reminder-message.mjs?v=2.5.0';
+import {validDocumentEmail} from './document-email-address.mjs?v=2.5.0';
+import {downloadBlob} from './ledger-export.mjs?v=2.5.0';
+import paymentScreen from './screens/record-payment.mjs?v=2.5.0';
 
 const opening = new WeakSet();
 const reminderRequests = new WeakMap();
@@ -189,12 +189,16 @@ export async function openBookingAction({api,id,action,opener,go,exportKind}) {
     missing.className = 'form-label-note';
     recipient.setAttribute('aria-describedby',missing.id);
    }
-   const {subject,body} = reminderMessage_(reminderFields(record));
+   const {subject,htmlBody} = reminderMessage_(reminderFields(record));
    note(subject,'bookingActionSubject');
-   for (const [index,paragraph] of body.split('\n\n').entries()) {
-    const message = note(paragraph,'bookingActionMessage'+index);
-    message.style.whiteSpace = 'pre-line';
-   }
+   // The exact email the customer will get (same template the helper sends). Sandboxed: no scripts, no links followed.
+   const preview = document.createElement('iframe');
+   preview.id = 'bookingActionPreview';
+   preview.title = 'Email preview';
+   preview.setAttribute('sandbox','');
+   preview.srcdoc = htmlBody;
+   preview.style.cssText = 'width:100%;height:360px;border:1px solid var(--line-subtle);border-radius:var(--radius-md);background:#fff';
+   form.append(preview);
    recipient.oninput = () => recipient.setCustomValidity('');
   }
   const reason = exporting || reminding ? null : field('bookingActionReason',blocking ? 'What is this for? (shown as the name of the blocked date)' : contacting ? 'Reason (optional)' : 'Reason for this change','text',!contacting);

@@ -2,6 +2,12 @@
 // RULE: every change staff can notice adds an entry here and bumps the version (the footer number is CHANGELOG[0].version).
 // Write for staff, in plain words. Dates are YYYY-MM-DD (Chicago business date).
 export const CHANGELOG=[
+ {version:'2.5.0',date:'2026-11-21',title:'Square payment links by email, and receipt-style emails',items:[
+  'The owner can send a customer a Square payment link from a booking ("Request payment link"), for any amount from $1.00 up to the balance. The sheet shows the exact email first and sends it to the customer\u2019s address (you can change it, or create the link without emailing). Each link works once, and nothing is recorded in the ledger until the owner confirms the payment.',
+  'Payments shows "Square payments to review": completed Square payments from the last 14 days. The owner checks the amount and booking, then records each one with a single click. A payment that matches no link needs the owner to choose its booking first.',
+  'Payment reminder, contract and receipt emails now look like the receipt: the venue name and address, a gold title, the amount or attached document in a cream box, and the details below. The PDFs are still attached, and the wording is unchanged. The Email reminder preview shows exactly what the customer will receive.',
+  'The Square controls stay hidden for everyone until Square is connected, so nothing about payments changes for staff yet.'
+ ]},
  {version:'2.4.0',date:'2026-11-20',title:'Insights by month, steadier header, spaced buttons',items:[
   'On Insights, click any month in the chart to see just that month: the three totals, the celebration mix and the day-of-the-week chart all switch to it. Click the month again, or use Show whole year, to go back. Changing the year also goes back to the whole year.',
   'The highlighted bar on Insights now marks the real peak month. It used to be stuck on June.',
