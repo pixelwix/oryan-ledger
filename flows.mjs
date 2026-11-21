@@ -1,21 +1,21 @@
-import {calendarIcs} from './calendar-export.mjs?v=2.3.0';
-import {downloadBlob} from './ledger-export.mjs?v=2.3.0';
-import {isReferenceDetail} from './document-email-ui.mjs?v=2.3.0';
-import {mountBookingActions,openBookingAction} from './booking-actions.mjs?v=2.3.0';
-import {bookingTransactions,transactionActions} from './transaction-actions.mjs?v=2.3.0';
-import {transactionSheet} from './transaction-sheet.mjs?v=2.3.0';
-import {warmDocuments} from './documents-lifecycle.mjs?v=2.3.0';
-import {contractAllowed,refreshContractCard} from './document-state.mjs?v=2.3.0';
-import {bookingRowBuilder,dueDate,rowVariant} from './booking-row.mjs?v=2.3.0';
-import {mountDocuments,contractSheet,downloadDocument,receiptRow,issueReceiptWithProgress} from './documents-ui.mjs?v=2.3.0';
+import {calendarIcs} from './calendar-export.mjs?v=2.4.0';
+import {downloadBlob} from './ledger-export.mjs?v=2.4.0';
+import {isReferenceDetail} from './document-email-ui.mjs?v=2.4.0';
+import {mountBookingActions,openBookingAction} from './booking-actions.mjs?v=2.4.0';
+import {bookingTransactions,transactionActions} from './transaction-actions.mjs?v=2.4.0';
+import {transactionSheet} from './transaction-sheet.mjs?v=2.4.0';
+import {warmDocuments} from './documents-lifecycle.mjs?v=2.4.0';
+import {contractAllowed,refreshContractCard} from './document-state.mjs?v=2.4.0';
+import {bookingRowBuilder,dueDate,rowVariant} from './booking-row.mjs?v=2.4.0';
+import {mountDocuments,contractSheet,downloadDocument,receiptRow,issueReceiptWithProgress} from './documents-ui.mjs?v=2.4.0';
 const rentalText=w=>!w?'—':typeof w==='string'?w:[w.start,w.end].map(t=>t==='00:00'?'Midnight':`${Number(t.slice(0,2))%12||12}:${t.slice(3)} ${Number(t.slice(0,2))<12?'AM':'PM'}`).join(' – ');
-import {commandSheet} from './command-sheet.mjs?v=2.3.0';
-import {readStates} from './read-states.mjs?v=2.3.0';
-import {mountLockedBehavior} from './locked-behaviors.mjs?v=2.3.0';
-import {money,balance} from './adapter.mjs?v=2.3.0';
-import {availableDay} from './calendar-parts.mjs?v=2.3.0';
-import {dayPrice,securityCost,SECURITY_HOURLY} from './day-price.mjs?v=2.3.0';
-import {DEPOSIT_AMOUNT} from './attention-rules.mjs?v=2.3.0';
+import {commandSheet} from './command-sheet.mjs?v=2.4.0';
+import {readStates} from './read-states.mjs?v=2.4.0';
+import {mountLockedBehavior} from './locked-behaviors.mjs?v=2.4.0';
+import {money,balance} from './adapter.mjs?v=2.4.0';
+import {availableDay} from './calendar-parts.mjs?v=2.4.0';
+import {dayPrice,securityCost,SECURITY_HOURLY} from './day-price.mjs?v=2.4.0';
+import {DEPOSIT_AMOUNT} from './attention-rules.mjs?v=2.4.0';
 const $=id=>document.getElementById(id);
 const val=id=>$(id).value;
 const number=id=>Number(val(id));
@@ -268,27 +268,53 @@ export async function mountFlows({api,route,go,toast,closeSheet}){
   const initialData=await api.insights();
   if(api.mode==='http'&&Array.isArray(initialData.years)){const sel=document.querySelector('select'),have=new Set([...sel.options].map(o=>o.value));for(const y of initialData.years){if(have.has(y))continue;const o=document.createElement('option');o.value=y;o.textContent='Year '+y;const after=[...sel.options].filter(x=>/^\d{4}$/.test(x.value)&&x.value<y).pop();if(after)after.after(o);else sel.insertBefore(o,sel.options[0]);have.add(y);}}
   const mixSamples=[...document.querySelectorAll('.bar-chart-container')].map(group=>group.querySelector('.bar-row').cloneNode(true));
-  const applyInsights=async e=>{
-   const data=await api.insights(e.target.value);if(document.body!==mountBody)return;const values=document.querySelectorAll('.stat-value');
-   [data.charges,data.payments,data.balance].forEach((v,i)=>values[i].textContent=money(v));
-   {const real=data.cohort==='ledger';document.querySelector('.stat-note').textContent=data.count+(real?' reservations':' fictional annual reservations');const lead=document.querySelector('.page-description');if(real&&lead)lead.textContent='Monthly value, booking counts, and celebration mix.';}
-   document.querySelectorAll('.stat-note')[1].textContent=(data.charges?100*data.payments/data.charges:0).toFixed(1)+'% of total charges received';
-   const yl=e.target.value==='all'?'all years':e.target.value;document.querySelector('.stat-label').textContent='Agreed venue value ('+yl+')';
-   document.querySelector('.v-chart').previousElementSibling.querySelector('h2').textContent='Bookings by Month ('+yl+')';
-   const peak=Math.max(...data.months);document.querySelector('.v-chart').previousElementSibling.querySelector('.badge').textContent=peak?'Peak month: '+new Date(2026,data.months.indexOf(peak),1).toLocaleDateString('en-US',{month:'long'})+' ('+money(peak)+')':'No reservations in this year';
-   document.querySelectorAll('.v-bar-col').forEach((bar,i)=>{bar.querySelector('.v-bar-val').textContent='$'+(data.months[i]/1000).toFixed(1)+'k';bar.querySelector('.v-bar').style.height=(peak?100*data.months[i]/peak:0)+'%';});
+  const select=document.querySelector('select');
+  const monthLong=i=>new Date(2026,i,1).toLocaleDateString('en-US',{month:'long'}),days=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  const cols=[...document.querySelectorAll('.v-bar-col')],chartCard=document.querySelector('.v-chart').closest('.card'),chartSub=chartCard.querySelector('.card-subtitle');
+  const mixSubs=[...document.querySelectorAll('.insights-bottom-grid .card-subtitle')],baseSubs=[chartSub.textContent,...mixSubs.map(n=>n.textContent)];
+  // Month selection: the same three cards and two mix charts, narrowed to one month. State is in memory only.
+  const state={data:initialData,year:select.value,month:null,peak:Math.max(...initialData.months)?initialData.months.indexOf(Math.max(...initialData.months)):-1};
+  const chartActions=document.createElement('div');chartActions.style.cssText='display:flex;align-items:center;gap:var(--space-3)';
+  const badge=chartCard.querySelector('.card-header .badge'),resetBtn=document.createElement('button');
+  resetBtn.type='button';resetBtn.className='btn btn-quiet btn-sm';resetBtn.textContent='Show whole year';resetBtn.hidden=true;resetBtn.dataset.insightsReset='true';
+  badge.before(chartActions);chartActions.append(resetBtn,badge);
+  const render=()=>{
+   const data=state.data,m=state.month,view=m==null?data:{...data.byMonth[m],cohort:data.cohort},values=document.querySelectorAll('.stat-value');
+   const yl=state.year==='all'?'all years':state.year,label=m==null?yl:monthLong(m)+(state.year==='all'?', all years':' '+state.year);
+   [view.charges,view.payments,view.balance].forEach((v,i)=>values[i].textContent=money(v));
+   {const real=data.cohort==='ledger';document.querySelector('.stat-note').textContent=view.count+(real?' reservations':' fictional annual reservations');const lead=document.querySelector('.page-description');if(real&&lead)lead.textContent='Monthly value, booking counts, and celebration mix.';}
+   document.querySelectorAll('.stat-note')[1].textContent=(view.charges?100*view.payments/view.charges:0).toFixed(1)+'% of total charges received';
+   document.querySelector('.stat-label').textContent='Agreed venue value ('+label+')';
+   chartCard.querySelector('h2').textContent='Bookings by Month ('+yl+')';
+   const peak=state.peak>=0?data.months[state.peak]:0;
+   badge.textContent=peak?'Peak month: '+monthLong(state.peak)+' ('+money(peak)+')':'No reservations in this year';
+   cols.forEach((col,i)=>{const bar=col.querySelector('.v-bar'),lab=col.querySelector('.v-bar-label'),gold=m==null?i===state.peak:i===m;
+    col.querySelector('.v-bar-val').textContent='$'+(data.months[i]/1000).toFixed(1)+'k';bar.style.height=(peak?100*data.months[i]/peak:0)+'%';
+    bar.classList.toggle('peak',gold);bar.classList.toggle('selected',m===i);col.setAttribute('aria-pressed',String(m===i));lab.style.color=gold?'var(--accent)':'';lab.style.fontWeight=gold?'700':'';});
+   resetBtn.hidden=m==null;
+   chartSub.textContent=m==null?baseSubs[0]:'Showing '+label+'. Select the month again, or use Show whole year, to go back.';
+   mixSubs.forEach((n,i)=>{n.textContent=m==null?baseSubs[i+1]:'Share of '+label+' booking count';});
    if(api.mode==='http'){
     const groups=document.querySelectorAll('.bar-chart-container');
-    const renderMix=(group,entries)=>{const sample=mixSamples[[...groups].indexOf(group)];group.replaceChildren(...entries.map(([label,count])=>{const row=sample.cloneNode(true),share=data.count?Math.round(100*count/data.count):0;row.firstElementChild.textContent=label;row.querySelector('.bar-value').textContent=share+'% ('+count+')';row.querySelector('.bar-fill').style.width=share+'%';return row;}));};
-    renderMix(groups[0],Object.entries(data.types));
-    const days=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];renderMix(groups[1],Object.entries(data.weekdays).sort((a,b)=>b[1]-a[1]).map(([day,count])=>[days[day],count]));
-    const takeaway=document.querySelector('.alert-info > div');if(takeaway)takeaway.textContent='Key Venue Takeaway: '+(data.count?'Most reservations: '+days[Object.entries(data.weekdays).sort((a,b)=>b[1]-a[1])[0]?.[0]]+'.':'No reservations in this year.');
+    const renderMix=(group,entries)=>{const sample=mixSamples[[...groups].indexOf(group)];const rows=entries.map(([name,count])=>{const row=sample.cloneNode(true),share=view.count?Math.round(100*count/view.count):0;row.firstElementChild.textContent=name;row.querySelector('.bar-value').textContent=share+'% ('+count+')';row.querySelector('.bar-fill').style.width=share+'%';return row;});if(!rows.length){const none=document.createElement('p');none.className='card-subtitle';none.textContent='No reservations.';rows.push(none);}group.replaceChildren(...rows);};
+    renderMix(groups[0],Object.entries(view.types));
+    renderMix(groups[1],Object.entries(view.weekdays).sort((a,b)=>b[1]-a[1]).map(([day,count])=>[days[day],count]));
+    const takeaway=document.querySelector('.alert-info > div');if(takeaway)takeaway.textContent='Key Venue Takeaway: '+(view.count?'Most reservations: '+days[Object.entries(view.weekdays).sort((a,b)=>b[1]-a[1])[0]?.[0]]+'.':'No reservations in '+(m==null?'this year':label)+'.');
     return;
    }
-   const mix=[data.types.Wedding||0,data.types.Birthday||0,data.types.Business||0,data.types.Other||0,data.weekdays[6]||0,data.weekdays[5]||0,data.weekdays[0]||0];
-   document.querySelectorAll('.bar-row').forEach((row,i)=>{const share=data.count?Math.round(100*mix[i]/data.count):0;row.querySelector('.bar-value').textContent=share+'% ('+mix[i]+')';row.querySelector('.bar-fill').style.width=share+'%';});
+   const mix=[view.types.Wedding||0,view.types.Birthday||0,view.types.Business||0,view.types.Other||0,view.weekdays[6]||0,view.weekdays[5]||0,view.weekdays[0]||0];
+   document.querySelectorAll('.bar-row').forEach((row,i)=>{const share=view.count?Math.round(100*mix[i]/view.count):0;row.querySelector('.bar-value').textContent=share+'% ('+mix[i]+')';row.querySelector('.bar-fill').style.width=share+'%';});
   };
-  const select=document.querySelector('select');select.addEventListener('change',applyInsights);
+  const applyInsights=async e=>{
+   const data=await api.insights(e.target.value);if(document.body!==mountBody)return;
+   const top=Math.max(...data.months);Object.assign(state,{data,year:e.target.value,month:null,peak:top?data.months.indexOf(top):-1});render();
+  };
+  const choose=i=>{state.month=state.month===i?null:i;render();};
+  document.querySelector('.v-chart').setAttribute('role','group');
+  cols.forEach((col,i)=>{col.setAttribute('role','button');col.tabIndex=0;col.setAttribute('aria-pressed','false');col.setAttribute('aria-label',monthLong(i)+': show this month');
+   col.addEventListener('click',()=>choose(i));col.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();choose(i);}});});
+  resetBtn.addEventListener('click',()=>{state.month=null;render();});
+  select.addEventListener('change',applyInsights);
   if(api.mode==='http'&&(document.querySelector('.stat-value').textContent.trim()!==money(initialData.charges)||Object.entries(initialData.types).some(([type,count])=>![...document.querySelectorAll('.bar-chart-container:first-of-type .bar-row,.bar-row')].some(row=>row.firstElementChild.textContent===type&&row.querySelector('.bar-value').textContent.includes('('+count+')')))))await applyInsights({target:select});
  }
 

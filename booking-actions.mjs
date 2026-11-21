@@ -1,7 +1,7 @@
-import {reminderEligible,reminderFields,reminderMessage_} from './reminder-message.mjs?v=2.3.0';
-import {validDocumentEmail} from './document-email-address.mjs?v=2.3.0';
-import {downloadBlob} from './ledger-export.mjs?v=2.3.0';
-import paymentScreen from './screens/record-payment.mjs?v=2.3.0';
+import {reminderEligible,reminderFields,reminderMessage_} from './reminder-message.mjs?v=2.4.0';
+import {validDocumentEmail} from './document-email-address.mjs?v=2.4.0';
+import {downloadBlob} from './ledger-export.mjs?v=2.4.0';
+import paymentScreen from './screens/record-payment.mjs?v=2.4.0';
 
 const opening = new WeakSet();
 const reminderRequests = new WeakMap();

@@ -1,4 +1,4 @@
-import {shiftDay} from './due-date.mjs?v=2.3.0';
+import {shiftDay} from './due-date.mjs?v=2.4.0';
 
 export function reminderEligible(record,today){
  return !record.cancelled&&!record.archived&&record.type!=='Blackout'&&record.date>today&&record.financialTotal>record.paid&&record.financialTotal!=null;

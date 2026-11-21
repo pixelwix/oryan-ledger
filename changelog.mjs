@@ -2,6 +2,12 @@
 // RULE: every change staff can notice adds an entry here and bumps the version (the footer number is CHANGELOG[0].version).
 // Write for staff, in plain words. Dates are YYYY-MM-DD (Chicago business date).
 export const CHANGELOG=[
+ {version:'2.4.0',date:'2026-11-20',title:'Insights by month, steadier header, spaced buttons',items:[
+  'On Insights, click any month in the chart to see just that month: the three totals, the celebration mix and the day-of-the-week chart all switch to it. Click the month again, or use Show whole year, to go back. Changing the year also goes back to the whole year.',
+  'The highlighted bar on Insights now marks the real peak month. It used to be stuck on June.',
+  'The header no longer shifts sideways on Calendar and Payments. Those pages are shorter, so they had no scrollbar, which moved everything a few pixels.',
+  'Cancel and Save are no longer touching on the deposit, refund, contract status and payment follow-up sheets, the payment picker and the sign-in prompts. They now sit apart on the right, like the other sheets.'
+ ]},
  {version:'2.3.0',date:'2026-11-18',title:'Cancellation charges, booking details and exports',items:[
   'Confirm cancellations with a reason and a charge that starts at the amount already paid. You can also set the charge on older cancellations.',
   'Use Edit details to update the guest, contact information, event type, headcount, rental hours or notes. Changing the guest name or event type resets the contract status.',

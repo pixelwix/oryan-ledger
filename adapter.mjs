@@ -1,15 +1,15 @@
-import {reminderEligible,reminderFields} from './reminder-message.mjs?v=2.3.0';
-import {validDocumentEmail} from './document-email-address.mjs?v=2.3.0';
-import {exportName,exportYears,ledgerCsv} from './ledger-export.mjs?v=2.3.0';
-import {balanceDueDate} from './due-date.mjs?v=2.3.0';
-import {balanceAlert,depositAlert,depositOwed} from './attention-rules.mjs?v=2.3.0';
+import {reminderEligible,reminderFields} from './reminder-message.mjs?v=2.4.0';
+import {validDocumentEmail} from './document-email-address.mjs?v=2.4.0';
+import {exportName,exportYears,ledgerCsv} from './ledger-export.mjs?v=2.4.0';
+import {balanceDueDate} from './due-date.mjs?v=2.4.0';
+import {balanceAlert,depositAlert,depositOwed} from './attention-rules.mjs?v=2.4.0';
 // The frozen sample ledger keeps its original look: reminders only apply to bookings that are not an unchanged sample row.
 const isFrozenSample=(originalRows,r)=>{const o=originalRows.find(x=>x.id===r.id);return !!o&&r.revision===o.revision;};
-import {fixtureDocuments} from './document-preview.mjs?v=2.3.0';
+import {fixtureDocuments} from './document-preview.mjs?v=2.4.0';
 // In-memory synthetic adapter; optional contact and rental fields live in engine records.
-import seed from './fixtures.mjs?v=2.3.0';
-import {displayMetadata} from './display-fixtures.mjs?v=2.3.0';
-import {engine,Ledger} from './engine.mjs?v=2.3.0';
+import seed from './fixtures.mjs?v=2.4.0';
+import {displayMetadata} from './display-fixtures.mjs?v=2.4.0';
+import {engine,Ledger} from './engine.mjs?v=2.4.0';
 const clone=v=>JSON.parse(JSON.stringify(v));
 export const money=n=>'$'+Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 export const balance=r=>r.financialTotal==null?null:Math.max(0,Math.round((r.financialTotal-r.paid)*100)/100);
@@ -42,7 +42,7 @@ export function createLedgerApi(presentation,initial=seed){
  function attention(){return clone(state.records.flatMap(r=>r.settled||r.archived?[]:[...(needsPrice(r)?[{id:r.id,kind:'price'}]:[]),...(!isFrozenSample(original,r)&&balanceAlert({...r,balance:balance(r)},initial.TODAY)?[{id:r.id,kind:balanceAlert({...r,balance:balance(r)},initial.TODAY)}]:r.due&&r.due<initial.TODAY&&balance(r)>0?[{id:r.id,kind:'overdue'}]:[]),...(!isFrozenSample(original,r)&&depositAlert({...r,depositOwed:depositOwed(r)},initial.TODAY)?[{id:r.id,kind:'depositDue'}]:[]),...(r.date<initial.TODAY&&r.type!=='Blackout'?[{id:r.id,kind:'past'}]:[]),...(r.depositHeld?[{id:r.id,kind:'deposit'}]:[]),...(r.importedDifference?[{id:r.id,kind:'reconcile'}]:[])]));}
  function insights(year='2026'){
   const rows=engine.initial(initial.annualBookings.filter(r=>year==='all'||r.date.startsWith(String(year)))).records;
-  const totals=engine.summary(rows);return {...totals,count:rows.length,months:Array.from({length:12},(_,m)=>rows.filter(r=>Number(r.date.slice(5,7))===m+1).reduce((n,r)=>n+r.total,0)),types:rows.reduce((a,r)=>(a[r.type]=(a[r.type]||0)+1,a),{}),weekdays:rows.reduce((a,r)=>{const d=new Date(r.date+'T12:00:00Z').getUTCDay();a[d]=(a[d]||0)+1;return a;},{})};
+  const totals=engine.summary(rows);return {...totals,count:rows.length,months:Array.from({length:12},(_,m)=>rows.filter(r=>Number(r.date.slice(5,7))===m+1).reduce((n,r)=>n+r.total,0)),types:rows.reduce((a,r)=>(a[r.type]=(a[r.type]||0)+1,a),{}),weekdays:rows.reduce((a,r)=>{const d=new Date(r.date+'T12:00:00Z').getUTCDay();a[d]=(a[d]||0)+1;return a;},{}),byMonth:Array.from({length:12},(_,m)=>{const inMonth=rows.filter(r=>Number(r.date.slice(5,7))===m+1),sum=engine.summary(inMonth);return {count:inMonth.length,charges:sum.charges,payments:sum.payments,balance:sum.balance,types:inMonth.reduce((a,r)=>(a[r.type]=(a[r.type]||0)+1,a),{}),weekdays:inMonth.reduce((a,r)=>{const d=new Date(r.date+'T12:00:00Z').getUTCDay();a[d]=(a[d]||0)+1;return a;},{})};})};
  }
  function calendar(year=2026,month=11){const prefix=`${year}-${String(month).padStart(2,'0')}`;return list().filter(r=>r.date.startsWith(prefix)&&!r.cancelled).map(r=>({...r,...displayMetadata[r.id]}));}
  function commands(type,id,values={}){

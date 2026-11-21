@@ -2,7 +2,7 @@
    Executive top bar on desktop, ergonomic bottom bar on mobile.
    Calm, scannable, accessible, zero-clutter ledger aesthetic. */
 
-@import url('tokens.css?v=2.3.0');
+@import url('tokens.css?v=2.4.0');
 
 /* =========================================================================
    Reset & Base Typography
@@ -13,6 +13,12 @@
   padding: 0;
 }
 
+/* Reserve the scrollbar's width on desktop pages so the centred layout (and the header) never shifts
+   between short pages (Calendar, Payments) and long ones (Bookings, Insights). Phones use overlay
+   scrollbars that take no space, so nothing changes there. */
+@media (min-width: 769px) {
+  html { scrollbar-gutter: stable; }
+}
 html {
   font-size: 14px;
   -webkit-text-size-adjust: 100%;

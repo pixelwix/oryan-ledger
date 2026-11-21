@@ -6,3 +6,12 @@
   .row-dropdown > [data-toggle-menu] { position: relative; }
   .row-dropdown > [data-toggle-menu]::after { content: ""; position: absolute; inset: -6px -4px; z-index: 1; }
 }
+/* Button row at the bottom of every runtime sheet (Cancel / Save, picker, sign-in, What's new). Same layout
+   as the approved mockup's modal footer: right-aligned, 12px gap, divider above. */
+.modal-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-3); margin-top: var(--space-5); border-top: 1px solid var(--line-subtle); padding-top: var(--space-4); }
+/* Insights: each month column is a button that narrows the cards and mix charts to that month. */
+.v-bar-col[role="button"] { cursor: pointer; border-radius: var(--radius-sm); }
+.v-bar-col[role="button"]:hover .v-bar:not(.peak) { filter: brightness(1.35); }
+.v-bar-col[role="button"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* A button's own display rule must not defeat the hidden attribute (Insights "Show whole year"). */
+.btn[hidden] { display: none; }
