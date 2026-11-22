@@ -2,6 +2,10 @@
 // RULE: every change staff can notice adds an entry here and bumps the version (the footer number is CHANGELOG[0].version).
 // Write for staff, in plain words. Dates are YYYY-MM-DD (Chicago business date).
 export const CHANGELOG=[
+ {version:'2.6.0',date:'2026-11-21',title:'A simpler booking action bar',items:[
+  'Record payment, Request payment link and Email reminder are easy to find at the top of a booking whenever they apply.',
+  'Open Documents for PDFs and receipts, Edit to update booking details, pricing or dates, and More to book again, cancel or archive. On a phone the menus sit together below the payment buttons.'
+ ]},
  {version:'2.5.0',date:'2026-11-21',title:'Square payment links by email, and receipt-style emails',items:[
   'The owner can send a customer a Square payment link from a booking ("Request payment link"), for any amount from $1.00 up to the balance. The sheet shows the exact email first and sends it to the customer\u2019s address (you can change it, or create the link without emailing). Each link works once, and nothing is recorded in the ledger until the owner confirms the payment.',
   'Payments shows "Square payments to review": completed Square payments from the last 14 days. The owner checks the amount and booking, then records each one with a single click. A payment that matches no link needs the owner to choose its booking first.',

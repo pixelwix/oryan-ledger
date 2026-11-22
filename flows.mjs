@@ -1,22 +1,21 @@
-import {mountSquare} from './square-ui.mjs?v=2.5.0';
-import {calendarIcs} from './calendar-export.mjs?v=2.5.0';
-import {downloadBlob} from './ledger-export.mjs?v=2.5.0';
-import {isReferenceDetail} from './document-email-ui.mjs?v=2.5.0';
-import {mountBookingActions,openBookingAction} from './booking-actions.mjs?v=2.5.0';
-import {bookingTransactions,transactionActions} from './transaction-actions.mjs?v=2.5.0';
-import {transactionSheet} from './transaction-sheet.mjs?v=2.5.0';
-import {warmDocuments} from './documents-lifecycle.mjs?v=2.5.0';
-import {contractAllowed,refreshContractCard} from './document-state.mjs?v=2.5.0';
-import {bookingRowBuilder,dueDate,rowVariant} from './booking-row.mjs?v=2.5.0';
-import {mountDocuments,contractSheet,downloadDocument,receiptRow,issueReceiptWithProgress} from './documents-ui.mjs?v=2.5.0';
+import {mountSquare} from './square-ui.mjs?v=2.6.0';
+import {calendarIcs} from './calendar-export.mjs?v=2.6.0';
+import {downloadBlob} from './ledger-export.mjs?v=2.6.0';
+import {mountBookingActions,openBookingAction} from './booking-actions.mjs?v=2.6.0';
+import {bookingTransactions,transactionActions} from './transaction-actions.mjs?v=2.6.0';
+import {transactionSheet} from './transaction-sheet.mjs?v=2.6.0';
+import {warmDocuments} from './documents-lifecycle.mjs?v=2.6.0';
+import {refreshContractCard} from './document-state.mjs?v=2.6.0';
+import {bookingRowBuilder,dueDate,rowVariant} from './booking-row.mjs?v=2.6.0';
+import {mountDocuments,contractSheet,downloadDocument,receiptRow,issueReceiptWithProgress} from './documents-ui.mjs?v=2.6.0';
 const rentalText=w=>!w?'—':typeof w==='string'?w:[w.start,w.end].map(t=>t==='00:00'?'Midnight':`${Number(t.slice(0,2))%12||12}:${t.slice(3)} ${Number(t.slice(0,2))<12?'AM':'PM'}`).join(' – ');
-import {commandSheet} from './command-sheet.mjs?v=2.5.0';
-import {readStates} from './read-states.mjs?v=2.5.0';
-import {mountLockedBehavior} from './locked-behaviors.mjs?v=2.5.0';
-import {money,balance} from './adapter.mjs?v=2.5.0';
-import {availableDay} from './calendar-parts.mjs?v=2.5.0';
-import {dayPrice,securityCost,SECURITY_HOURLY} from './day-price.mjs?v=2.5.0';
-import {DEPOSIT_AMOUNT} from './attention-rules.mjs?v=2.5.0';
+import {commandSheet} from './command-sheet.mjs?v=2.6.0';
+import {readStates} from './read-states.mjs?v=2.6.0';
+import {mountLockedBehavior} from './locked-behaviors.mjs?v=2.6.0';
+import {money,balance} from './adapter.mjs?v=2.6.0';
+import {availableDay} from './calendar-parts.mjs?v=2.6.0';
+import {dayPrice,securityCost,SECURITY_HOURLY} from './day-price.mjs?v=2.6.0';
+import {DEPOSIT_AMOUNT} from './attention-rules.mjs?v=2.6.0';
 const $=id=>document.getElementById(id);
 const val=id=>$(id).value;
 const number=id=>Number(val(id));
@@ -32,7 +31,9 @@ function replaceMoney(root,pairs){
  }
 }
 async function hydrateDetail(api,route){
+ const body=document.body;
  const r=await api.detail(route.id),old=api.original('sophia');
+ if(route.screen==='booking'&&document.body!==body)return r;
  const pairs=[[old.total,r.total],[old.paid,r.paid],[balance(old),r.balance],[old.depositHeld,r.depositHeld]];
  if(route.screen==='booking'||route.screen==='record-payment'||route.screen==='edit-booking')replaceMoney(document.body,pairs);
  if(r.id!=='sophia'||r.client!==old.client||r.phone!==old.phone||r.contract!==old.contract||r.type!==old.type){
@@ -89,7 +90,6 @@ async function hydrateDetail(api,route){
 
  if(route.screen==='booking'&&r.financialTotal==null){const header=document.querySelector('.booking-header-card');header.querySelector('.badge').textContent=r.cancelled?'Cancelled · charge not set':'Price not agreed';header.children[1].children[1].textContent='Not agreed';}
  if(route.screen==='booking'&&r.cancelled){
-  const cancel=document.querySelector('[data-action="booking-7"]');if(cancel)cancel.textContent='Restore booking';
   const badge=document.querySelector('.booking-header-card .badge');if(badge)badge.textContent='Cancelled';
  }
  if(r.id!=='sophia'||r.revision!==old.revision){
@@ -111,7 +111,7 @@ async function hydrateDetail(api,route){
    const warning=document.querySelector('.breakdown-table').parentElement.querySelector('.alert-warning');if(warning){if(variant==='overdue')warning.querySelector('strong').textContent='Final Balance Overdue since '+dueDate(r)+'.';else warning.remove();}
   }
  }
- if(route.screen==='booking'){refreshContractCard(r);if(!contractAllowed(r)){document.querySelectorAll('[data-action="booking-0"]').forEach(a=>{const note=document.createElement('p');note.className='form-label-note';note.textContent=r.cancelled?'No contract PDF for a cancelled booking.':'No contract PDF for a blocked date.';a.replaceWith(note);});}}
+ if(route.screen==='booking')refreshContractCard(r);
  return r;
 }
 function linesFromForm(){return {hall:number('lineHall'),discount:number('lineDiscount'),discountNote:val('lineDiscountNote'),extras:[
@@ -136,19 +136,26 @@ function openPaymentPicker(api,go,opener){
  cancel.onclick=finish;backdrop.onclick=e=>{if(e.target===backdrop)finish();};
  actions.append(cancel);body.append(search,list,actions);dialog.append(header,body);backdrop.append(dialog);document.body.append(backdrop);document.addEventListener('keydown',key,true);search.focus();load();
 }
+const mountedFlowBodies = new WeakSet();
+
 export async function mountFlows({api,route,go,toast,closeSheet}){
+ const mountBody=document.body;
+ if(mountedFlowBodies.has(mountBody))return;
+ mountedFlowBodies.add(mountBody);
  if(['booking','payments'].includes(route.screen))mountSquare({api,screen:route.screen,route,toast,go}).catch(()=>{});
  if(route.screen==='record-payment')warmDocuments(api);
- const mountBody=document.body;
  const screen=route.screen;let r,saving=false;
  if(api.mode==='http'&&['bookings','overview','payments','calendar'].includes(screen))installPaymentPicker(api,go);
  if(['booking','edit-booking','record-payment'].includes(screen))r=await hydrateDetail(api,route);
+ if(screen==='booking'&&document.body!==mountBody)return;
  if(screen==='overview')await mountOverview(api);
  if(screen==='payments')await mountPayments(api,toast,go);
  mountLockedBehavior(screen,api,route,toast,r);
- if(screen==='booking'){await mountDocuments(api,route.id,toast);document.querySelectorAll('.timeline button').forEach((button,i)=>{button.dataset.transactionId||=r.payments.slice().reverse()[i]?.id||'';});}
  if(screen==='booking'){
-  mountBookingActions(r,isReferenceDetail(api,r),api);
+  const documents=await mountDocuments(api,route.id,toast);
+  if(document.body!==mountBody)return;
+  document.querySelectorAll('.timeline button').forEach((button,i)=>{button.dataset.transactionId||=r.payments.slice().reverse()[i]?.id||'';});
+  mountBookingActions(r,api,documents);
   const transactions=(r.id==='sophia'&&r.revision===api.original('sophia').revision?r.payments.map(t=>({...t,category:'payment'})):bookingTransactions(r)).slice().reverse();
   document.querySelectorAll('.timeline-content').forEach((row,i)=>{const t=transactions[i];if(t){row.querySelector('button').dataset.transactionId=t.id;mountTransactionActions(row,api,r,t.id,toast,go,true);}});
  }
@@ -171,6 +178,7 @@ export async function mountFlows({api,route,go,toast,closeSheet}){
   finally{saving=false;if(submit)submit.disabled=false;}
  });
  document.body.addEventListener('click',async e=>{
+  const menuTrigger=e.target.closest('.more-dropdown-container')?.querySelector('[data-toggle-menu]');
   const blockButton=e.target.closest('[data-action="calendar-0"]');
   if(blockButton){try{await openBookingAction({api,id:null,action:'block',opener:blockButton,go});}catch(error){toast(error.message);}return;}
   const bookingAction=e.target.closest('[data-booking-action]');
@@ -183,7 +191,7 @@ export async function mountFlows({api,route,go,toast,closeSheet}){
      const {client,phone,email,type,guestCount}=source;
      rebookDrafts.set(api,{client,phone,email,type,guestCount});
      go('#/new');
-    }else await openBookingAction({api,id:bookingId,action,opener:bookingAction,go});
+    }else await openBookingAction({api,id:bookingId,action,opener:menuTrigger || bookingAction,go});
    }catch(error){toast(error.message);}
    return;
   }
@@ -194,14 +202,14 @@ export async function mountFlows({api,route,go,toast,closeSheet}){
   if(action&&action.tagName!=='FORM'){
    try{
     const key=action.dataset.action;
-    if(['booking-2','booking-3','booking-4','booking-5','booking-8','booking-9'].includes(key)){await commandSheet({api,id:route.id,kind:{'booking-2':'deposit','booking-3':'refund','booking-4':'reminder','booking-5':'contractStatus','booking-8':'depositRefund','booking-9':'deduct'}[key],toast,go});return;}
-    if(key==='booking-0'){await contractSheet(api,route.id,toast);return;}
+    if(['booking-2','booking-3','booking-4','booking-5','booking-8','booking-9'].includes(key)){await commandSheet({api,id:route.id,kind:{'booking-2':'deposit','booking-3':'refund','booking-4':'reminder','booking-5':'contractStatus','booking-8':'depositRefund','booking-9':'deduct'}[key],toast,go,opener:menuTrigger});return;}
+    if(key==='booking-0'){await contractSheet(api,route.id,toast,menuTrigger);return;}
     if(key==='booking-1'){const rows=await api.documents(route.id),row=rows.find(r=>r.kind!=='contract');if(!row)throw Error('No receipt PDF is available after the document cutoff.');if(row.status==='saved')await downloadDocument(api,row.id,toast);else{await issueReceiptWithProgress(api,route.id,row.id,toast);await mountDocuments(api,route.id,toast);}return;}
     if(key==='booking-6'&&api.ics){const text=await api.ics(route.id),url=URL.createObjectURL(new Blob([text],{type:'text/calendar;charset=utf-8'})),link=document.createElement('a');link.href=url;link.download='booking.ics';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);return;}
     if(key==='overview-0'){await api.commands('markSettled',action.dataset.bookingId,{reason:'Owner marked the past event settled.'});action.textContent='Settled ✓';action.disabled=true;action.style.opacity='0.6';return;}
     if(key==='booking-7'){
      const current=await api.detail(route.id);
-     if(!current.cancelled&&current.type!=='Blackout'){await openBookingAction({api,id:route.id,action:'cancel',opener:action,go});return;}
+     if(!current.cancelled&&current.type!=='Blackout'){await openBookingAction({api,id:route.id,action:'cancel',opener:menuTrigger || action,go});return;}
      if(!current.cancelled&&!window.confirm('Release this blocked date?'))return;
      await api.commands(current.cancelled?'restore':'release',route.id,{reason:'Owner changed the reservation status.'});go('#/bookings');return;
     }

@@ -1,12 +1,12 @@
-import {addDocumentEmail,isReferenceDetail} from './document-email-ui.mjs?v=2.5.0';
-import {paymentMethods,togglePaymentMethod} from './payment-method.mjs?v=2.5.0';
-import {pollDocuments,stopDocumentsPoll,warmDocuments,BACKGROUND_MESSAGE,documentOperation,finishDocumentOperation,STILL_SAVING} from './documents-lifecycle.mjs?v=2.5.0';
-import {contractAllowed,schedulePassed,outdatedContract,refreshContractCard} from './document-state.mjs?v=2.5.0';
-import {createDocumentProgress} from './document-progress.mjs?v=2.5.0';
+import {addDocumentEmail,isReferenceDetail} from './document-email-ui.mjs?v=2.6.0';
+import {paymentMethods,togglePaymentMethod} from './payment-method.mjs?v=2.6.0';
+import {pollDocuments,stopDocumentsPoll,warmDocuments,BACKGROUND_MESSAGE,documentOperation,finishDocumentOperation,STILL_SAVING} from './documents-lifecycle.mjs?v=2.6.0';
+import {contractAllowed,schedulePassed,outdatedContract,refreshContractCard} from './document-state.mjs?v=2.6.0';
+import {createDocumentProgress} from './document-progress.mjs?v=2.6.0';
 const records=new WeakMap(),recordBoxes=new WeakMap();
 function remember(api,id,record){let map=records.get(api);if(!map){map=new Map();records.set(api,map);}map.set(id,record);return record;}
 const rowTemplates=new WeakMap(),rowProgress=new WeakMap(),rowStates=new WeakMap();
-import paymentScreen from './screens/record-payment.mjs?v=2.5.0';
+import paymentScreen from './screens/record-payment.mjs?v=2.6.0';
 export async function downloadDocument(api,id,toast){warmDocuments(api);const {blob,filename,preview}=await api.downloadDocument(id),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=filename;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);if(preview)toast('Synthetic PDF preview.');}
 export async function mountDocuments(api,id,toast){
  if(api.documentsEnabled===false)return;
@@ -26,6 +26,7 @@ export async function mountDocuments(api,id,toast){
  if(rows.some(r=>r.status==='saved'&&previous.some(p=>p.id===r.id&&p.status!=='saved'))){toast('PDF saved.');document.body.dispatchEvent(new CustomEvent('contract-saved'));}
  box.replaceChildren();for(const [index,row] of rows.entries()){const el=(samples[index]||sample).cloneNode(true);el.dataset.documentId=row.id;el.querySelector('strong').textContent=row.status==='saved'?row.filename:row.status==='pending'?(documentOperation(api,row.id)?'Saving...':'PDF pending'):'PDF save not confirmed';el.querySelector('span').textContent=row.status!=='saved'?(row.status==='failed'?(row.retry_message||'Save not confirmed · Retry'):documentOperation(api,row.id)?'Saving...':'Use Retry to check or save this PDF'):row.display||(row.preview?el.querySelector('span').textContent:null)||(row.page_count+' pages · Generated '+new Date(row.generated_at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric',timeZone:'America/Chicago'}));const changed=outdatedContract(row,record);if(changed){const note=document.createElement('p');note.className='form-label-note';note.textContent='Out of date - booking changed on '+changed;el.querySelector('strong').parentElement.append(note);}const button=el.querySelector('button');if(row.status!=='saved')button.className='btn btn-quiet';button.textContent=row.status==='saved'?'Download':'Retry';button.onclick=async()=>{button.disabled=true;try{if(row.status==='saved')await downloadDocument(api,row.id,toast);else{toast('Saving PDF…');if(row.localRetry)await row.localRetry();else {const progress=createDocumentProgress(el.firstElementChild,row.kind==='contract'?'contract':'receipt');try{documentOperation(api,row.id,true);const result=await api.retryDocument(row.id);await progress.finish(result?.status==='saved');}catch(error){progress.error(error.message);throw error;}}await mountDocuments(api,id,toast);}}catch(e){toast(e.message);}finally{button.disabled=false;}};if(row.status==='pending'&&documentOperation(api,row.id)&&Date.now()-documentOperation(api,row.id).started<300000){const progress=createDocumentProgress(el.firstElementChild,row.kind==='contract'?'contract':'receipt',Date.parse(row.generated_at)||Date.now());rowProgress.get(box).push(progress);}if(row.status==='saved'&&!isReferenceDetail(api,record))addDocumentEmail(api,row,record,el,toast,()=>mountDocuments(api,id,toast));box.append(el);}
  watchPending(rows);
+ return rows;
  function watchPending(rows){const row=rows.find(r=>r.status==='pending'&&documentOperation(api,r.id));if(!row)return;pollDocuments(api,id,()=>mountDocuments(api,id,toast),3000,'#/booking/'+encodeURIComponent(id),row.id,()=>{for(const progress of rowProgress.get(box)||[])progress.stop();const note=document.createElement('p');note.textContent=STILL_SAVING;const refresh=document.createElement('button');refresh.className='btn btn-quiet';refresh.textContent='Refresh Saved copies';refresh.onclick=()=>mountDocuments(api,id,toast);box.append(note,refresh);});}
 }
 
@@ -47,10 +48,10 @@ function watchListDocument(api,id,requestId,toast){
 const operations=new WeakMap(),drafts=new WeakMap();
 function operationMap(api){let map=operations.get(api);if(!map){map=new Map();operations.set(api,map);}return map;}
 async function lookup(api,id,requestId){return (await api.documents(id)).find(row=>row.id===requestId||row.request_id===requestId);}
-export async function contractSheet(api,id,toast){
+export async function contractSheet(api,id,toast,opener=document.activeElement){
  warmDocuments(api);
  if(document.getElementById('documentModal'))return;
- const opener=document.activeElement,record=await api.detail(id);
+ const record=await api.detail(id);
  if(document.getElementById('documentModal'))return;
  if(!contractAllowed(record)){toast(record.cancelled?'No contract PDF for a cancelled booking.':'No contract PDF for a blocked date.');return;}
  const host=document.createElement('div');host.innerHTML=paymentScreen(await api.presentation('record-payment'));
@@ -97,7 +98,7 @@ export async function contractSheet(api,id,toast){
  const submit=document.createElement('button');submit.id='document-save';submit.type='submit';submit.className='btn btn-primary';submit.textContent='Save Contract PDF';footer.append(cancel,submit);form.append(footer);
  let progress;
  let dismissed=false;
- const dismiss=()=>{if(dismissed)return;dismissed=true;let savedDrafts=drafts.get(api);if(!savedDrafts){savedDrafts=new Map();drafts.set(api,savedDrafts);}savedDrafts.set(id,{method:values.method.value});progress?.stop();modal.remove();document.removeEventListener('keydown',escape,true);if(opener?.isConnected){const target=opener.getClientRects().length?opener:opener.closest('.ledger-row')?.querySelector('[data-toggle-menu]');target?.focus({preventScroll:true});}};
+ const dismiss=()=>{if(dismissed)return;dismissed=true;let savedDrafts=drafts.get(api);if(!savedDrafts){savedDrafts=new Map();drafts.set(api,savedDrafts);}savedDrafts.set(id,{method:values.method.value});progress?.stop();modal.remove();document.removeEventListener('keydown',escape,true);if(opener?.isConnected){const target=opener.getClientRects().length?opener:opener.closest('.ledger-row,.more-dropdown-container')?.querySelector('[data-toggle-menu]');target?.focus({preventScroll:true});}};
  const escape=e=>{if(e.key==='Escape'){e.preventDefault();e.stopImmediatePropagation();dismiss();}};
  const close=modal.querySelector('.modal-close-btn');close.id='document-close';close.style.flexShrink='0';close.removeAttribute('href');close.setAttribute('role','button');close.tabIndex=0;close.setAttribute('aria-label','Close contract form');
  close.onclick=e=>{e.preventDefault();e.stopPropagation();dismiss();};close.onkeydown=e=>{if(['Enter',' '].includes(e.key)){e.preventDefault();dismiss();}};

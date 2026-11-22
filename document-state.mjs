@@ -1,4 +1,4 @@
-import {businessToday} from './business-date.mjs?v=2.5.0';
+import {businessToday} from './business-date.mjs?v=2.6.0';
 export const contractAllowed=r=>!r.cancelled&&r.type!=='Blackout';
 export function schedulePassed(r,today){const date=new Date(r.date+'T12:00:00Z');date.setUTCDate(date.getUTCDate()-14);return date.toISOString().slice(0,10)<today;}
 export function outdatedContract(row,r){

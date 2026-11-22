@@ -1,7 +1,8 @@
-import {reminderEligible,reminderFields,reminderMessage_} from './reminder-message.mjs?v=2.5.0';
-import {validDocumentEmail} from './document-email-address.mjs?v=2.5.0';
-import {downloadBlob} from './ledger-export.mjs?v=2.5.0';
-import paymentScreen from './screens/record-payment.mjs?v=2.5.0';
+import {reminderEligible,reminderFields,reminderMessage_} from './reminder-message.mjs?v=2.6.0';
+import {validDocumentEmail} from './document-email-address.mjs?v=2.6.0';
+import {contractAllowed} from './document-state.mjs?v=2.6.0';
+import {downloadBlob} from './ledger-export.mjs?v=2.6.0';
+import paymentScreen from './screens/record-payment.mjs?v=2.6.0';
 
 const opening = new WeakSet();
 const reminderRequests = new WeakMap();
@@ -50,37 +51,74 @@ export function bookingActionButton(action, record, className) {
  return button;
 }
 
-export function mountBookingActions(record, referenceDetail, api) {
- const bar = document.querySelector('.more-dropdown-container');
- const action = record.archived ? 'unarchive' : record.cancelled ? 'archive' : 'reschedule';
- const button = bookingActionButton(action, record, referenceDetail ? 'more-menu-item' : 'btn btn-quiet');
- // No size overrides: the button must be exactly as large as the buttons beside it (locked UI, no drift).
- if (referenceDetail) {
-  bar.querySelector('.more-menu-divider').before(button);
- } else {
-  bar.before(button);          // archived bookings too: Unarchive sits in the action bar, the same size as its neighbours
+export function mountBookingActions(record, api, documents) {
+ const bar = document.querySelector('.primary-action-bar');
+ if (!bar) return;
+ // Overlapping redraws can mount the same bar twice. Remove the entries and note this mount owns.
+ document.querySelectorAll('.primary-action-bar [data-booking-action], [data-booking-action-note]').forEach(el => el.remove());
+ const menus = bar.querySelector('.booking-action-menus');
+ const edit = menus.querySelector('#bookingEditMenu');
+ const more = menus.querySelector('#moreActionsMenu');
+ const hold = record.type === 'Blackout';
+ const active = !record.cancelled && !record.archived;
+ const utilities = more.querySelector('[data-booking-utility-divider]');
+ const price = edit.querySelector('a');
+
+ const menuItem = action => {
+  const button = bookingActionButton(action, record, 'more-menu-item');
+  button.setAttribute('role','menuitem');
+  button.tabIndex = -1;
+  return button;
+ };
+
+ bar.querySelector('a.btn-primary').hidden = hold || !!record.archived || !(record.balance > 0);
+ menus.querySelector('[data-action="booking-0"]').hidden = !contractAllowed(record) || api.documentsEnabled === false;
+ menus.querySelector('[data-action="booking-1"]').hidden = hold || api.documentsEnabled === false ||
+  (documents ? !documents.some(row => row.kind !== 'contract') : !(record.paid > 0 || record.voids?.length));
+ price.hidden = hold || !active;
+ if (!hold) price.before(menuItem('contact'));
+ if (active) edit.append(menuItem('reschedule'));
+ const status = more.querySelector('[data-action="booking-7"]');
+ status.textContent = record.cancelled ? (hold ? 'Restore blocked date' : 'Restore booking') : hold ? 'Release blocked date' : 'Cancel booking';
+ if (!hold) status.before(menuItem('bookAgain'));
+ if (record.cancelled && !record.archived && !hold && record.cancellationFee == null) {
+  utilities.before(menuItem('settle'));
  }
- if (record.type !== 'Blackout') {
-  const contact = bookingActionButton('contact', record, referenceDetail ? 'more-menu-item' : 'btn btn-quiet');
-  if (referenceDetail) bar.querySelector('.more-menu-divider').before(contact);
-  else bar.before(contact);
-  const rebook = bookingActionButton('bookAgain',record,referenceDetail ? 'more-menu-item' : 'btn btn-quiet');
-  if (referenceDetail) bar.querySelector('.more-menu-divider').before(rebook);
-  else bar.before(rebook);
+ if (record.cancelled || record.archived) {
+  const divider = document.createElement('div');
+  divider.className = 'more-menu-divider';
+  divider.setAttribute('role','separator');
+  divider.dataset.bookingActionNote = '';
+  utilities.before(divider,menuItem(record.archived ? 'unarchive' : 'archive'));
  }
- if (record.cancelled && !record.archived && record.type !== 'Blackout' && record.cancellationFee == null) {
-  bar.before(bookingActionButton('settle',record,'btn btn-quiet'));
+
+ const extraActions = [...more.querySelectorAll('[data-action]')].filter(item => item !== status);
+ for (const item of extraActions) {
+  const key = item.dataset.action;
+  item.hidden = key === 'booking-6' ? !api.ics : hold ||
+   (key === 'booking-3' && !(record.paid > 0)) || (key === 'booking-4' && !(record.balance > 0)) || (key === 'booking-5' && !contractAllowed(record));
  }
+ utilities.hidden = extraActions.every(item => item.hidden);
+ for (const panel of menus.querySelectorAll('.more-dropdown-menu')) {
+  panel.parentElement.hidden = !panel.querySelector('[role="menuitem"]:not([hidden])');
+ }
+
  if (reminderEligible(record,api.today) && (api.mode !== 'http' || record.reminderMailEnabled) && api.documentsEnabled !== false) {
-  const reminder = bookingActionButton('reminderEmail',record,referenceDetail ? 'more-menu-item' : 'btn btn-quiet');
-  if (referenceDetail) bar.querySelector('.more-menu-divider').before(reminder);
-  else bar.before(reminder);
+  menus.before(bookingActionButton('reminderEmail',record,'btn btn-quiet'));
+ }
+ if (!contractAllowed(record)) {
+  const note = document.createElement('p');
+  note.className = 'form-label-note booking-contract-note';
+  note.dataset.bookingActionNote = '';
+  note.textContent = record.cancelled ? 'No contract PDF for a cancelled booking.' : 'No contract PDF for a blocked date.';
+  bar.append(note);
  }
  if (record.archived) {
   const note = document.createElement('p');
   note.className = 'card-subtitle';
+  note.dataset.bookingActionNote = '';
   note.textContent = 'Archived on '+archiveDate(record.archived.at)+' by '+record.archived.by+'.';
-  bar.parentElement.after(note);
+  bar.after(note);
  }
 }
 

@@ -1,13 +1,13 @@
-import {startDocumentsWarm,DOCUMENTS_WARM_MINUTES} from './documents-lifecycle.mjs?v=2.5.0';
-import {closeRowMenu,installMenuAutoClose,positionRowMenu,rowMenuKeyboard} from './row-menu.mjs?v=2.5.0';
-import {createHttpLedgerApi} from './http-adapter.mjs?v=2.5.0';
-import {readStates} from './read-states.mjs?v=2.5.0';
-import {createLedgerApi,money,balance} from './adapter.mjs?v=2.5.0';
-import {parseRoute} from './routes.mjs?v=2.5.0';
-import {CHANGELOG,VERSION} from './changelog.mjs?v=2.5.0';
-import {savedTheme,applyTheme,effectiveTheme,syncTheme} from './theme.mjs?v=2.5.0';
-import {mountFlows} from './flows.mjs?v=2.5.0';
-const presentation=await fetch('./presentation.json?v=2.5.0').then(r=>r.json());
+import {startDocumentsWarm,DOCUMENTS_WARM_MINUTES} from './documents-lifecycle.mjs?v=2.6.0';
+import {closeOpenMenus,closeRowMenu,installMenuAutoClose,positionBookingMenu,positionRowMenu,rowMenuKeyboard} from './row-menu.mjs?v=2.6.0';
+import {createHttpLedgerApi} from './http-adapter.mjs?v=2.6.0';
+import {readStates} from './read-states.mjs?v=2.6.0';
+import {createLedgerApi,money,balance} from './adapter.mjs?v=2.6.0';
+import {parseRoute} from './routes.mjs?v=2.6.0';
+import {CHANGELOG,VERSION} from './changelog.mjs?v=2.6.0';
+import {savedTheme,applyTheme,effectiveTheme,syncTheme} from './theme.mjs?v=2.6.0';
+import {mountFlows} from './flows.mjs?v=2.6.0';
+const presentation=await fetch('./presentation.json?v=2.6.0').then(r=>r.json());
 // A hosted Worker address and Google client ID come ONLY from the app's own app-config.json (public values written at deploy time).
 // The URL can only select a loopback Worker for local development; it can never point the app (and its token) at another server.
 const appConfig=await fetch('./app-config.json',{cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null);
@@ -17,7 +17,7 @@ const workerOrigin=trustedOrigin?appConfig.workerOrigin:params.get('worker');
 const clientId=trustedOrigin?appConfig.googleClientId:(workerOrigin?params.get('client'):'');
 let auth=null,signin=null,me=null,retryWaiter=null,documentsWarm=null;
 if(clientId){
- const [{createAuth},{mountSignIn}]=await Promise.all([import('./auth.mjs?v=2.5.0'),import('./signin-ui.mjs?v=2.5.0')]);
+ const [{createAuth},{mountSignIn}]=await Promise.all([import('./auth.mjs?v=2.6.0'),import('./signin-ui.mjs?v=2.6.0')]);
  auth=createAuth({clientId,origin:workerOrigin,onState:(state,info)=>{signin?.render(state,info);documentsWarm?.sync();}});
  signin=mountSignIn({auth,toast,onRetry:()=>{if(retryWaiter){const resolve=retryWaiter;retryWaiter=null;resolve();}else auth.start().catch(()=>{});}});
 }
@@ -25,7 +25,7 @@ export const ledgerApi=workerOrigin?createHttpLedgerApi(presentation,{origin:wor
 const states=readStates(presentation,()=>render());
 if(workerOrigin){window.addEventListener('offline',()=>states.show('offline'));window.addEventListener('online',()=>{states.clear('offline');render();});}
 const initial=new URLSearchParams(location.search).get('theme')||savedTheme();applyTheme(initial);
-let activeRoute,returnFocus,returnHash,focusId,renderSequence=0,routeToast;
+let activeRoute,mountedHash,returnFocus,returnHash,focusId,renderSequence=0,routeToast;
 installMenuAutoClose();
 export function toast(text){let el=document.querySelector('.app-toast');if(!el){el=document.createElement('div');el.className='app-toast';el.setAttribute('role','status');document.body.append(el);}el.textContent=text;clearTimeout(toast.timer);toast.timer=setTimeout(()=>el.remove(),4000);}
 export function go(hash,message){
@@ -34,9 +34,10 @@ export function go(hash,message){
 }
 export function closeSheet(){go(returnHash||'#/booking/'+(activeRoute.id||'sophia'));focusId=returnFocus;}
 export async function render(){
+ if(activeRoute?.screen==='booking'&&location.hash!==mountedHash)closeOpenMenus();
  const ticket=++renderSequence;
  document.documentElement.removeAttribute('data-ready');
- const route=parseRoute(location.hash);
+ const hash=location.hash,route=parseRoute(hash);
  const notice=routeToast?.hash===location.hash?routeToast:null;
  routeToast=undefined;
  const loading=workerOrigin?setTimeout(()=>{if(ticket===renderSequence)states.show('loading');},120):null;
@@ -50,15 +51,18 @@ export async function render(){
    if(['bookings','new-booking'].includes(route.screen))await ledgerApi.list();
    if(['booking','record-payment','edit-booking'].includes(route.screen))await ledgerApi.detail(route.id);
   }
-  const module=await import('./screens/'+route.screen+'.mjs?v=2.5.0');
-  if(ticket!==renderSequence)return;
+  const module=await import('./screens/'+route.screen+'.mjs?v=2.6.0');
+  const presentation=await ledgerApi.presentation(route.screen);
+  if(ticket!==renderSequence||hash!==location.hash){clearTimeout(loading);return;}
   const style=document.getElementById('routeStyles')||document.head.appendChild(Object.assign(document.createElement('style'),{id:'routeStyles'}));style.textContent=module.styles;
-  const body=document.createElement('body');body.innerHTML=module.default(await ledgerApi.presentation(route.screen));{const kept=document.querySelector('.app-header'),fresh=body.querySelector('.app-header');
+  const body=document.createElement('body');body.innerHTML=module.default(presentation);{const kept=document.querySelector('.app-header'),fresh=body.querySelector('.app-header');
    // One header for the whole app: keep the same element on every screen, change only which tab is current. Nothing in it moves.
    if(kept&&fresh){for(const link of kept.querySelectorAll('.nav-link')){const next=fresh.querySelector('.nav-link[href="'+link.getAttribute('href')+'"]');if(next){link.classList.toggle('active',next.classList.contains('active'));if(next.hasAttribute('aria-current'))link.setAttribute('aria-current',next.getAttribute('aria-current'));else link.removeAttribute('aria-current');}}fresh.replaceWith(kept);}}
   document.body.replaceWith(body);
-  activeRoute=route;document.body.style.overflow='';syncTheme();
+  if(route.screen==='insights'&&activeRoute?.screen!=='insights')window.scrollTo(0,0);
+  activeRoute=route;mountedHash=hash;document.body.style.overflow='';syncTheme();
   await mountFlows({api:ledgerApi,route,go,toast,closeSheet});
+  if(ticket!==renderSequence||hash!==location.hash){clearTimeout(loading);return;}
   if(focusId){document.querySelector(focusId)?.focus({preventScroll:true});focusId=null;}
   ledgerApi.endRead?.();
   clearTimeout(loading);states.clear('loading');states.clear('error');
@@ -67,21 +71,52 @@ export async function render(){
   signin?.syncInert();
   document.documentElement.dataset.ready=route.screen;
   if(notice)toast(notice.message);
- }catch(error){ledgerApi.endRead?.();clearTimeout(loading);states.clear('loading');if(error?.auth){gate().then(()=>render());return;}if(workerOrigin){states.show('error');document.documentElement.dataset.readError='true';}else toast(error.message);}
+ }catch(error){clearTimeout(loading);if(ticket!==renderSequence||hash!==location.hash)return;ledgerApi.endRead?.();states.clear('loading');if(error?.auth){gate().then(()=>render());return;}if(workerOrigin){states.show('error');document.documentElement.dataset.readError='true';}else toast(error.message);}
 }
 document.addEventListener('click',e=>{
  // Preserve the locked href used by the polish breadcrumb hit-area selector.
  if(e.target.closest('.main-content > div > a[href="bookings.html"]')){e.preventDefault();go('#/bookings');return;}
- const theme=e.target.closest('.theme-toggle-btn');if(theme){applyTheme(effectiveTheme()==='dark'?'light':'dark',true);return;}
+ const theme=e.target.closest('.theme-toggle-btn');
  const a=e.target.closest('a[href^="#/"]');if(a){
   const next=parseRoute(a.hash);
   if(['edit-booking','record-payment'].includes(next.screen)&&!['edit-booking','record-payment'].includes(activeRoute?.screen)){
-   returnHash=location.hash||'#/overview';returnFocus=a.id?'#'+a.id:a.getAttribute('href')?'a[href="'+a.getAttribute('href')+'"]':null;
+   const opener=a.closest('.more-dropdown-container')?.querySelector('[data-toggle-menu]') || a;
+   returnHash=location.hash||'#/overview';returnFocus=opener.id?'#'+opener.id:'a[href="'+a.getAttribute('href')+'"]';
   }
   if(a.classList.contains('modal-close-btn')||a.closest('.modal-backdrop')&&a.textContent.trim()==='Cancel'){e.preventDefault();closeSheet();return;}
  }
- const trigger=e.target.closest('[data-toggle-menu]');if(trigger){const menu=document.getElementById(trigger.dataset.toggleMenu);if(menu){document.querySelectorAll('.dropdown-menu[open],.more-dropdown-menu[open]').forEach(other=>{if(other!==menu){closeRowMenu(other);document.querySelectorAll('[data-toggle-menu]').forEach(button=>{if(button.dataset.toggleMenu===other.id)button.setAttribute('aria-expanded','false');});}});menu.toggleAttribute('open');trigger.setAttribute('aria-expanded',String(menu.hasAttribute('open')));if(menu.classList.contains('dropdown-menu')){if(menu.hasAttribute('open'))positionRowMenu(menu,trigger);else closeRowMenu(menu);}}return;}
- if(!e.target.closest('.dropdown-menu,.more-dropdown-menu')){document.querySelectorAll('.dropdown-menu[open],.more-dropdown-menu[open]').forEach(closeRowMenu);document.querySelectorAll('[data-toggle-menu][aria-expanded="true"]').forEach(button=>button.setAttribute('aria-expanded','false'));}
+ const trigger=e.target.closest('[data-toggle-menu]');
+ if(trigger){
+  const menu=document.getElementById(trigger.dataset.toggleMenu);
+  if(!menu)return;
+  for(const other of document.querySelectorAll('.dropdown-menu[open],.more-dropdown-menu[open]')){
+   if(other===menu)continue;
+   closeRowMenu(other);
+   document.querySelector('[data-toggle-menu="'+other.id+'"]')?.setAttribute('aria-expanded','false');
+  }
+  const open=menu.toggleAttribute('open');
+  trigger.setAttribute('aria-expanded',String(open));
+  if(menu.classList.contains('dropdown-menu')){
+   if(open)positionRowMenu(menu,trigger);
+   else closeRowMenu(menu);
+  }else if(open){
+   positionBookingMenu(menu);
+   if(e.detail===0)menu.querySelector('[role=menuitem]:not([hidden])')?.focus();
+  }
+  return;
+ }
+ const bookingMenu=e.target.closest('.more-dropdown-menu[open]');
+ if(bookingMenu&&e.target.closest('[role=menuitem]')){
+  const opener=bookingMenu.previousElementSibling;
+  closeRowMenu(bookingMenu);
+  opener.setAttribute('aria-expanded','false');
+ }
+ if(!e.target.closest('.dropdown-menu,.more-dropdown-menu')){
+  const menu=document.querySelector('.more-dropdown-menu[open]');
+  closeOpenMenus();
+  menu?.previousElementSibling.focus({preventScroll:true});
+ }
+ if(theme){applyTheme(effectiveTheme()==='dark'?'light':'dark',true);return;}
  const opener=e.target.closest('[data-open-modal]');if(opener){const modal=document.getElementById(opener.dataset.openModal);if(modal){modal.hidden=false;modal.style.display='flex';modal.querySelector('button,input,a')?.focus();}}
  const closer=e.target.closest('[data-close-modal]');if(closer){const modal=closer.closest('.modal-backdrop');if(modal){modal.hidden=true;modal.style.display='none';}}
  if(e.target.classList.contains('modal-backdrop'))closeSheet();
@@ -90,8 +125,7 @@ document.addEventListener('keydown',e=>{
  rowMenuKeyboard(e);
  if(e.key==='Escape'){
   if(['edit-booking','record-payment'].includes(activeRoute?.screen)){e.preventDefault();closeSheet();}
-  document.querySelectorAll('.dropdown-menu[open],.more-dropdown-menu[open]').forEach(closeRowMenu);
-  document.querySelectorAll('[aria-expanded="true"]').forEach(m=>m.setAttribute('aria-expanded','false'));
+  closeOpenMenus();
  }
  if(e.key==='Tab'){
   const dialog=document.querySelector('.modal-backdrop:not([hidden]) .modal-dialog');if(!dialog)return;

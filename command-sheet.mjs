@@ -1,7 +1,7 @@
 // Reuses the locked payment sheet and form controls for the mockup's action buttons.
-import paymentScreen from './screens/record-payment.mjs?v=2.5.0';
-import {readStates} from './read-states.mjs?v=2.5.0';
-export async function commandSheet({api,id,kind,toast,go}){
+import paymentScreen from './screens/record-payment.mjs?v=2.6.0';
+import {readStates} from './read-states.mjs?v=2.6.0';
+export async function commandSheet({api,id,kind,toast,go,opener}){
  const record=await api.detail(id),sample=document.createElement('div');sample.innerHTML=paymentScreen(await api.presentation('record-payment'));
  const modal=sample.querySelector('.modal-backdrop'),form=modal.querySelector('form');modal.id='commandModal';form.id='commandForm';form.dataset.commandForm='true';
  const title={deposit:'Record deposit transaction',refund:'Record event refund',depositRefund:'Refund security deposit',deduct:'Deduct from security deposit',contractStatus:'Update contract status',reminder:'Payment reminder follow-up',reconcile:'Reconcile imported balance'}[kind];
@@ -23,7 +23,7 @@ export async function commandSheet({api,id,kind,toast,go}){
  if(kind==='reminder'){field('kind','Follow-up action',{options:['plan','contact'],value:'plan'});field('due','Balance due date',{type:'date',value:record.due||'',required:false});field('nextFollowUp','Next follow-up',{type:'date',required:false});field('date','Contact date',{type:'date',value:api.today});field('method','Contact method',{options:['Phone','Text message','Email','In person','Other'],value:'Phone'});field('note','Contact note',{required:false});}
  field('reason','Reason for this change');
  const footer=document.createElement('div');footer.className='modal-actions';const close=document.createElement('button');close.type='button';close.className='btn btn-quiet';close.textContent='Cancel';const submit=document.createElement('button');submit.type='submit';submit.className='btn btn-primary';submit.textContent='Save';footer.append(close,submit);form.append(footer);
- const dismiss=()=>{modal.remove();document.removeEventListener('keydown',escape,true);};const escape=e=>{if(e.key==='Escape'){e.stopImmediatePropagation();dismiss();}};
+ const dismiss=()=>{modal.remove();document.removeEventListener('keydown',escape,true);opener?.focus({preventScroll:true});};const escape=e=>{if(e.key==='Escape'){e.stopImmediatePropagation();dismiss();}};
  document.addEventListener('keydown',escape,true);const originalDismiss=dismiss;
  close.onclick=()=>{originalDismiss();document.removeEventListener('keydown',escape,true);};modal.querySelector('.modal-close-btn').onclick=e=>{e.preventDefault();e.stopPropagation();close.click();};modal.addEventListener('click',e=>{if(e.target===modal){e.stopPropagation();close.click();}});
  let pending=false;

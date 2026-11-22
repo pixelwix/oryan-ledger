@@ -1,9 +1,9 @@
 // Square controls for the owner: a payment link on a booking, and a review list on Payments.
 // Everything here is hidden unless the Worker says Square is configured for this owner, so the
 // locked screens are unchanged (and the pixel baselines too) until Square is switched on.
-import paymentScreen from './screens/record-payment.mjs?v=2.5.0';
-import {paymentLinkMessage_} from './email-template.mjs?v=2.5.0';
-import {reminderFields} from './reminder-message.mjs?v=2.5.0';
+import paymentScreen from './screens/record-payment.mjs?v=2.6.0';
+import {paymentLinkMessage_} from './email-template.mjs?v=2.6.0';
+import {reminderFields} from './reminder-message.mjs?v=2.6.0';
 
 const el=(tag,className,text)=>{const n=document.createElement(tag);if(className)n.className=className;if(text)n.textContent=text;return n;};
 const money=n=>'$'+Number(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -53,12 +53,12 @@ async function sheet({api,id,title,subtitle,opener}){
 async function bookingButton({api,route,toast,body}){
  const record=await api.detail(route.id);
  if(document.body!==body||!record||record.cancelled||record.archived||record.type==='Blackout'||dueOf(record)<1)return;
- const bar=document.querySelector('.more-dropdown-container');
+ const bar=document.querySelector('.booking-action-menus');
  if(!bar||document.querySelector('[data-square-link]'))return;
  const button=el('button','btn btn-quiet','Request payment link');   // same class as its neighbours: same size
  button.type='button';button.dataset.squareLink=record.id;
  button.onclick=()=>linkSheet({api,record,opener:button,toast}).catch(()=>toast('Unable to open the payment link form.'));
- bar.before(button);
+ (bar.previousElementSibling?.matches('[data-booking-action=reminderEmail]') ? bar.previousElementSibling : bar).before(button);
 }
 async function linkSheet({api,record,opener,toast}){
  if(opening.has(api))return;opening.add(api);
