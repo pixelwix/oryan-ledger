@@ -342,6 +342,16 @@ export const styles = `
       gap: var(--space-2);
       margin-inline-start: auto;
     }
+    /* The pinned bar sits below the header with a small gap; this band fills that gap with the page colour so nothing scrolls visibly behind it. */
+    .primary-action-bar::before {
+      content: "";
+      position: absolute;
+      left: -1px;
+      right: -1px;
+      top: -12px;
+      height: 12px;
+      background-color: var(--bg);
+    }
     .more-dropdown-container {
       position: relative;
     }
@@ -398,6 +408,7 @@ export const styles = `
       display: none;
     }
     @media (max-width: 768px) {
+      .primary-action-bar::before { display: none; }
       .primary-action-bar {
         position: relative;
         top: auto;

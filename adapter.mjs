@@ -1,16 +1,16 @@
-import {reminderEligible,reminderFields} from './reminder-message.mjs?v=2.7.0';
-import {bookingEmailFields,bookingEmailKinds,bookingEmailLabels} from './booking-email.mjs?v=2.7.0';
-import {validDocumentEmail} from './document-email-address.mjs?v=2.7.0';
-import {exportName,exportYears,ledgerCsv} from './ledger-export.mjs?v=2.7.0';
-import {balanceDueDate} from './due-date.mjs?v=2.7.0';
-import {balanceAlert,depositAlert,depositOwed} from './attention-rules.mjs?v=2.7.0';
+import {reminderEligible,reminderFields} from './reminder-message.mjs?v=2.7.1';
+import {bookingEmailFields,bookingEmailKinds,bookingEmailLabels} from './booking-email.mjs?v=2.7.1';
+import {validDocumentEmail} from './document-email-address.mjs?v=2.7.1';
+import {exportName,exportYears,ledgerCsv} from './ledger-export.mjs?v=2.7.1';
+import {balanceDueDate} from './due-date.mjs?v=2.7.1';
+import {balanceAlert,depositAlert,depositOwed} from './attention-rules.mjs?v=2.7.1';
 // The frozen sample ledger keeps its original look: reminders only apply to bookings that are not an unchanged sample row.
 const isFrozenSample=(originalRows,r)=>{const o=originalRows.find(x=>x.id===r.id);return !!o&&r.revision===o.revision;};
-import {fixtureDocuments} from './document-preview.mjs?v=2.7.0';
+import {fixtureDocuments} from './document-preview.mjs?v=2.7.1';
 // In-memory synthetic adapter; optional contact and rental fields live in engine records.
-import seed from './fixtures.mjs?v=2.7.0';
-import {displayMetadata} from './display-fixtures.mjs?v=2.7.0';
-import {engine,Ledger} from './engine.mjs?v=2.7.0';
+import seed from './fixtures.mjs?v=2.7.1';
+import {displayMetadata} from './display-fixtures.mjs?v=2.7.1';
+import {engine,Ledger} from './engine.mjs?v=2.7.1';
 const clone=v=>JSON.parse(JSON.stringify(v));
 export const money=n=>'$'+Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 export const balance=r=>r.financialTotal==null?null:Math.max(0,Math.round((r.financialTotal-r.paid)*100)/100);
