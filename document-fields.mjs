@@ -1,4 +1,4 @@
-import {balanceDueDate} from './due-date.mjs?v=2.7.1';
+import {balanceDueDate} from './due-date.mjs?v=2.8.0';
 // Port of v0.8.4 contractFields_; parity is tested against the protected source.
 const Ledger=(()=>{
   function text(value, limit = 500) { return String(value == null ? '' : value).trim().slice(0, limit); }

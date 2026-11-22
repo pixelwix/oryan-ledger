@@ -2,6 +2,10 @@
 // RULE: every change staff can notice adds an entry here and bumps the version (the footer number is CHANGELOG[0].version).
 // Write for staff, in plain words. Dates are YYYY-MM-DD (Chicago business date).
 export const CHANGELOG=[
+ {version:'2.8.0',date:'2026-11-22',title:'Square payments refresh automatically',items:[
+  'While Payments is open, new Square payments can appear for review within seconds when live updates are enabled.',
+  'You still confirm each payment before it is recorded.'
+ ]},
  {version:'2.7.1',date:'2026-11-22',title:'Steadier booking toolbar',items:[
   'The booking action bar no longer lets the page show through above it while you scroll.',
   'Request payment link is back on bookings with a balance (a release dropped the Square settings for a few hours; nothing was recorded or sent).'

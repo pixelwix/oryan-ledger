@@ -1,12 +1,12 @@
-import {bookingIcs} from './calendar-export.mjs?v=2.7.1';
-export {bookingIcs} from './calendar-export.mjs?v=2.7.1';
-import {exportName} from './ledger-export.mjs?v=2.7.1';
-import {balanceDueDate} from './due-date.mjs?v=2.7.1';
-import {balanceAlert,depositAlert} from './attention-rules.mjs?v=2.7.1';
-import {businessToday,localTodayOverride} from './business-date.mjs?v=2.7.1';
+import {bookingIcs} from './calendar-export.mjs?v=2.8.0';
+export {bookingIcs} from './calendar-export.mjs?v=2.8.0';
+import {exportName} from './ledger-export.mjs?v=2.8.0';
+import {balanceDueDate} from './due-date.mjs?v=2.8.0';
+import {balanceAlert,depositAlert} from './attention-rules.mjs?v=2.8.0';
+import {businessToday,localTodayOverride} from './business-date.mjs?v=2.8.0';
 // HTTP is the sole data source in this adapter. Fixture adapter is presentation/price
 // helpers only; no read fallback and no Stage 3 command transport.
-import {createLedgerApi,balance} from './adapter.mjs?v=2.7.1';
+import {createLedgerApi,balance} from './adapter.mjs?v=2.8.0';
 export function localWorkerOrigin(value){const url=new URL(value);if(url.protocol!=='http:'||!['localhost','127.0.0.1','[::1]'].includes(url.hostname)||url.username||url.password||url.pathname!=='/'||url.search||url.hash)throw Error('Worker must be a loopback HTTP origin.');return url.origin;}
 export function hostedOrigin(value){const url=new URL(value);if(url.protocol!=='https:'||url.username||url.password||url.pathname!=='/'||url.search||url.hash)throw Error('Worker must be an exact https origin.');return url.origin;}
 export function createHttpLedgerApi(presentation,{origin,timeout=4000,retries=1,fetcher=fetch,onState=()=>{},auth=null,trustedOrigin=false,today,pageOrigin=globalThis.location?.origin,clock=()=>new Date()}){
@@ -122,7 +122,7 @@ export function createHttpLedgerApi(presentation,{origin,timeout=4000,retries=1,
   retryDocument:id=>post('/documents/'+encodeURIComponent(id)+'/retry',{},timeout,false),
   async downloadDocument(id){const response=await fetcher(new URL('/documents/'+encodeURIComponent(id)+'/download',origin),{headers:await authHeaders(),credentials:'omit',cache:'no-store'});if(auth&&(response.status===401||response.status===403))throw await authFailure(response);if(!response.ok||!response.headers.get('Content-Type')?.startsWith('application/pdf'))throw Error('Document download unavailable.');return {preview:response.headers.get('X-Document-Preview')==='true',blob:await response.blob(),filename:decodeURIComponent(response.headers.get('Content-Disposition')?.split("UTF-8''")[1]||'Document.pdf')};},
   squareStatus:()=>squareRequest('/square/status').catch(()=>({configured:false})),
-  squarePayments:()=>squareRequest('/square/payments'),
+  squarePayments:fresh=>squareRequest('/square/payments'+(fresh?'?fresh=1':'')),
   async squareLink(bookingId,amount,requestId,to){const out=await squareRequest('/square/links',{method:'POST',body:JSON.stringify({bookingId,amount,...(to?{to}:{})}),headers:{'Content-Type':'application/json','Idempotency-Key':requestId}});if(out.email?.status==='sent'){details.clear();renderCache=null;}return out;},
   async squareConfirm(paymentId,bookingId){const out=await squareRequest('/square/confirm',{method:'POST',body:JSON.stringify({paymentId,bookingId}),headers:{'Content-Type':'application/json'}});details.clear();renderCache=null;return out;},
   async ics(id){const r=await this.detail(id);return bookingIcs(r);}

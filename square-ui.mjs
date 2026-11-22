@@ -1,9 +1,9 @@
 // Square controls for the owner: a payment link on a booking, and a review list on Payments.
 // Everything here is hidden unless the Worker says Square is configured for this owner, so the
 // locked screens are unchanged (and the pixel baselines too) until Square is switched on.
-import paymentScreen from './screens/record-payment.mjs?v=2.7.1';
-import {paymentLinkMessage_} from './email-template.mjs?v=2.7.1';
-import {reminderFields} from './reminder-message.mjs?v=2.7.1';
+import paymentScreen from './screens/record-payment.mjs?v=2.8.0';
+import {paymentLinkMessage_} from './email-template.mjs?v=2.8.0';
+import {reminderFields} from './reminder-message.mjs?v=2.8.0';
 
 const el=(tag,className,text)=>{const n=document.createElement(tag);if(className)n.className=className;if(text)n.textContent=text;return n;};
 const money=n=>'$'+Number(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -115,6 +115,28 @@ async function linkSheet({api,record,opener,toast}){
  }finally{opening.delete(api);}
 }
 
+// Schedule from completion so a slow poll and a manual refresh cannot overlap.
+export function squarePolling({load,active,visible,schedule=setTimeout,cancel=clearTimeout}){
+ let timer,busy=false,stopped=false,delay=60000;
+ function stop(){stopped=true;cancel(timer);}
+ function queue(){
+  if(!stopped&&active())timer=schedule(()=>visible()?run():queue(),delay);
+ }
+ async function run(manual=false){
+  if(stopped||!active()||busy)return;
+  cancel(timer);
+  busy=true;
+  try{delay=await load(manual)?20000:60000;}
+  catch{delay=120000;}
+  finally{busy=false;queue();}
+ }
+ return {run,stop};
+}
+
+export function hasNewSquarePayment(previous,items){
+ return previous!==null&&items.some(item=>!previous.has(item.id));
+}
+
 // ---- Payments page: Square payments to review ----
 async function inbox({api,toast,go,body,status}){
  const header=document.querySelector('.main-content .page-header');
@@ -129,28 +151,55 @@ async function inbox({api,toast,go,body,status}){
  card.append(top,list);header.after(card);
  const names=new Map();
  async function nameOf(id){if(!id)return '';if(!names.has(id))names.set(id,api.detail(id).then(r=>r?.client||id,()=>id));return names.get(id);}
- async function render(){
-  refresh.disabled=true;list.replaceChildren(el('p','card-subtitle','Checking Square…'));
-  let data;
-  try{data=await api.squarePayments();}catch(e){list.replaceChildren(el('p','alert alert-danger',e.message||'Could not reach Square.'));refresh.disabled=false;return;}
-  if(document.body!==body)return;
-  const rows=[];
-  for(const p of data.items){
-   const row=el('div','square-row');row.dataset.paymentId=p.id;
-   const main=el('div','square-main'),line=el('strong',null,money(p.amount)+' · '+dayLabel(p.at));
-   const note=el('p','form-label-note',p.confirmed?'Recorded in the ledger':p.bookingId?'For '+await nameOf(p.bookingId):(p.needs||''));
-   main.append(line,note);row.append(main);
-   if(p.confirmed){row.append(el('span','badge badge-paid','Recorded'));}
-   else if(!p.needs){const ok=el('button','btn btn-primary btn-sm','Confirm');ok.type='button';ok.onclick=()=>confirmSheet({api,payment:p,bookingId:p.bookingId,client:note.textContent.replace(/^For /,''),toast,go,opener:ok,done:render});row.append(ok);}
-   else if(p.needs==='Choose the booking.'){const pick=el('button','btn btn-quiet btn-sm','Choose booking');pick.type='button';pick.onclick=()=>chooseSheet({api,payment:p,toast,go,opener:pick,done:render});row.append(pick);}
-   rows.push(row);
+ const active=()=>document.body===body&&card.isConnected;
+ let previous=null,lastView=null;
+ async function render(manual){
+  refresh.disabled=true;
+  if(previous===null)list.replaceChildren(el('p','card-subtitle','Checking Square…'));
+  try{
+   const data=await api.squarePayments(manual===true);
+   if(!active())return;
+   const view=JSON.stringify([data.items,data.truncated,data.windowDays]);
+   if(view!==lastView){
+    const rows=[];
+    for(const p of data.items){
+     const row=el('div','square-row');row.dataset.paymentId=p.id;
+     const main=el('div','square-main'),line=el('strong',null,money(p.amount)+' · '+dayLabel(p.at));
+     const note=el('p','form-label-note',p.confirmed?'Recorded in the ledger':p.bookingId?'For '+await nameOf(p.bookingId):(p.needs||''));
+     main.append(line,note);row.append(main);
+     if(p.confirmed){row.append(el('span','badge badge-paid','Recorded'));}
+     else if(!p.needs){const ok=el('button','btn btn-primary btn-sm','Confirm');ok.type='button';ok.onclick=()=>confirmSheet({api,payment:p,bookingId:p.bookingId,client:note.textContent.replace(/^For /,''),toast,go,opener:ok,done:()=>polling.run(true)});row.append(ok);}
+     else if(p.needs==='Choose the booking.'){const pick=el('button','btn btn-quiet btn-sm','Choose booking');pick.type='button';pick.onclick=()=>chooseSheet({api,payment:p,toast,go,opener:pick,done:()=>polling.run(true)});row.append(pick);}
+     rows.push(row);
+    }
+    if(!active())return;
+    list.replaceChildren(...(rows.length?rows:[el('p','card-subtitle','No Square payments in the last '+data.windowDays+' days.')]),...(data.truncated?[el('p','form-label-note','Showing the newest payments only. Older ones need a look in Square.')]:[]));
+    lastView=view;
+   }
+   if(hasNewSquarePayment(previous,data.items))toast('New Square payment to review.');
+   previous=new Set(data.items.map(item=>item.id));
+   return data.liveUpdates;
+  }catch(error){
+   if(active()&&(manual||previous===null)){
+    list.replaceChildren(el('p','alert alert-danger',error.message||'Could not reach Square.'));
+    lastView=null;
+   }
+   throw error;
+  }finally{
+   if(active())refresh.disabled=false;
   }
-  list.replaceChildren(...(rows.length?rows:[el('p','card-subtitle','No Square payments in the last '+data.windowDays+' days.')]),...(data.truncated?[el('p','form-label-note','Showing the newest payments only. Older ones need a look in Square.')]:[]));
-  refresh.disabled=false;
  }
- refresh.onclick=render;
- await render();
+ const polling=squarePolling({load:render,active,visible:()=>document.visibilityState==='visible'});
+ const observer=new MutationObserver(()=>{
+  if(active())return;
+  observer.disconnect();
+  polling.stop();
+ });
+ observer.observe(document.documentElement,{childList:true});
+ refresh.onclick=()=>polling.run(true);
+ await polling.run(true);
 }
+
 async function confirmSheet({api,payment,bookingId,client,toast,go,opener,done,chosen=false}){
  const s=await sheet({api,id:'squareConfirmModal',title:chosen?'Confirm chosen booking':'Record Square payment',subtitle:client||'',opener});
  if(!s)return;
