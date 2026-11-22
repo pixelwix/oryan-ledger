@@ -1,12 +1,16 @@
-import {reminderEligible,reminderFields,reminderMessage_} from './reminder-message.mjs?v=2.6.0';
-import {validDocumentEmail} from './document-email-address.mjs?v=2.6.0';
-import {contractAllowed} from './document-state.mjs?v=2.6.0';
-import {downloadBlob} from './ledger-export.mjs?v=2.6.0';
-import paymentScreen from './screens/record-payment.mjs?v=2.6.0';
+import {reminderEligible,reminderFields,reminderMessage_} from './reminder-message.mjs?v=2.7.0';
+import {bookingEmailFields,bookingEmailKinds,bookingEmailLabels,bookingRefunds} from './booking-email.mjs?v=2.7.0';
+import {bookingMessage_} from './email-template.mjs?v=2.7.0';
+import {validDocumentEmail} from './document-email-address.mjs?v=2.7.0';
+import {contractAllowed} from './document-state.mjs?v=2.7.0';
+import {downloadBlob} from './ledger-export.mjs?v=2.7.0';
+import paymentScreen from './screens/record-payment.mjs?v=2.7.0';
 
 const opening = new WeakSet();
 const reminderRequests = new WeakMap();
+const bookingEmailRequests = new WeakMap();
 const explanations = {
+ bookingEmail: "This message will be sent from the venue’s email account.",
  reminderEmail: "This message will be sent from the venue's email account.",
  export: 'Download a CSV file for the selected year.',
  cancel: 'Charged: what the customer has paid so far. Nothing is refunded and nothing more is owed. You can change the amount.',
@@ -20,6 +24,7 @@ const explanations = {
 const savedCopiesNote = 'Saved contracts and receipts keep the old date. Prepare a new contract if the client needs one.';
 
 export function bookingActionLabel(action, record) {
+ if (action === 'bookingEmail') return 'Send email…';
  if (action === 'reminderEmail') return 'Email reminder';
  if (action === 'export') return 'Export';
  if (action === 'bookAgain') return 'Book again';
@@ -75,11 +80,15 @@ export function mountBookingActions(record, api, documents) {
  menus.querySelector('[data-action="booking-0"]').hidden = !contractAllowed(record) || api.documentsEnabled === false;
  menus.querySelector('[data-action="booking-1"]').hidden = hold || api.documentsEnabled === false ||
   (documents ? !documents.some(row => row.kind !== 'contract') : !(record.paid > 0 || record.voids?.length));
+ if (api.documentsEnabled !== false && (api.mode !== 'http' || record.reminderMailEnabled) &&
+     bookingEmailKinds(record,api.today).length) menus.querySelector('#bookingDocumentsMenu').append(menuItem('bookingEmail'));
  price.hidden = hold || !active;
  if (!hold) price.before(menuItem('contact'));
  if (active) edit.append(menuItem('reschedule'));
- const status = more.querySelector('[data-action="booking-7"]');
+ const status = more.querySelector('[data-booking-status]');
  status.textContent = record.cancelled ? (hold ? 'Restore blocked date' : 'Restore booking') : hold ? 'Release blocked date' : 'Cancel booking';
+ status.dataset.action = 'booking-7';
+ status.hidden = false;
  if (!hold) status.before(menuItem('bookAgain'));
  if (record.cancelled && !record.archived && !hold && record.cancellationFee == null) {
   utilities.before(menuItem('settle'));
@@ -129,6 +138,7 @@ export async function openBookingAction({api,id,action,opener,go,exportKind}) {
  try {
   const blocking = action === 'block';                       // creates a new blocked date; there is no booking yet
   const reminding = action === 'reminderEmail';
+  const emailing = action === 'bookingEmail';
   const exporting = action === 'export';
   const years = exporting ? await api.exportYears(exportKind) : [];
   const record = exporting ? {client:exportKind==='bookings'?'Bookings':'Payments'} : blocking ? {client:'',date:'',type:'Blackout'} : await api.detail(id);
@@ -138,7 +148,11 @@ export async function openBookingAction({api,id,action,opener,go,exportKind}) {
   const charging = ['cancel','settle'].includes(action);
   if (charging && (record.archived || record.type === 'Blackout' || (action === 'cancel' ? record.cancelled : !record.cancelled || record.cancellationFee != null))) throw Error('This cancellation action is no longer available.');
   if (reminding && (!reminderEligible(record,api.today) || api.mode === 'http' && !record.reminderMailEnabled || api.documentsEnabled === false)) throw Error('Email reminder is unavailable for this booking.');
-  if (!reminding && !exporting && !blocking && !contacting && !charging && action !== allowed) throw Error('This action is no longer available. Refresh the booking and try again.');
+  const emailKinds = emailing ? bookingEmailKinds(record,api.today) : [];
+  if (emailing && (!emailKinds.length || api.documentsEnabled === false || api.mode === 'http' && !record.reminderMailEnabled)) {
+   throw Error('Send email is unavailable for this booking.');
+  }
+  if (!emailing && !reminding && !exporting && !blocking && !contacting && !charging && action !== allowed) throw Error('This action is no longer available. Refresh the booking and try again.');
   const moving = action === 'reschedule';
   const copies = moving && api.documentsEnabled !== false
    ? await api.documents(id).catch(error => { if (api.documentsEnabled !== false) throw error; return []; })
@@ -239,7 +253,41 @@ export async function openBookingAction({api,id,action,opener,go,exportKind}) {
    form.append(preview);
    recipient.oninput = () => recipient.setCustomValidity('');
   }
-  const reason = exporting || reminding ? null : field('bookingActionReason',blocking ? 'What is this for? (shown as the name of the blocked date)' : contacting ? 'Reason (optional)' : 'Reason for this change','text',!contacting);
+  const emailKind = emailing ? field('bookingEmailKind','Email','select') : null;
+  const refundGroup = emailing ? field('bookingEmailRefund','Refund transaction','select') : null;
+  const address = emailing ? field('bookingEmailTo','Customer email','email',false,record.email || '') : null;
+  const hasAddress = emailing && validDocumentEmail(record.email);
+  let messageSubject, messageBody;
+  if (emailing) {
+   for (const kind of emailKinds) emailKind.add(new Option(bookingEmailLabels[kind],kind));
+   for (const refund of bookingRefunds(record)) {
+    const amount = new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(refund.amount);
+    const type = refund.kind === 'refund' ? 'Security deposit return' : 'Event refund';
+    refundGroup.add(new Option([refund.date,amount,refund.method,type].filter(Boolean).join(' · '),refund.id));
+   }
+   address.readOnly = true;
+   if (!hasAddress) {
+    const missing = note('Add a valid customer email in Edit details before sending.','bookingEmailMissing');
+    address.setAttribute('aria-describedby',missing.id);
+   }
+   messageSubject = note('','bookingEmailSubject');
+   messageBody = field('bookingEmailPreview','Message','textarea',false);
+   messageBody.readOnly = true;
+   messageBody.rows = 9;
+  }
+  function updateEmailPreview() {
+   refundGroup.closest('.form-group').hidden = emailKind.value !== 'refund';
+   refundGroup.disabled = emailKind.value !== 'refund';
+   const fields = bookingEmailFields(record,emailKind.value,refundGroup.value);
+   const {subject,body} = bookingMessage_(fields);
+   messageSubject.textContent = 'Subject: '+subject;
+   messageBody.value = body;
+  }
+  if (emailing) {
+   emailKind.onchange = refundGroup.onchange = updateEmailPreview;
+   updateEmailPreview();
+  }
+  const reason = exporting || reminding || emailing ? null : field('bookingActionReason',blocking ? 'What is this for? (shown as the name of the blocked date)' : contacting ? 'Reason (optional)' : 'Reason for this change','text',!contacting);
   if (reason) reason.maxLength = blocking ? 150 : 500;
   const error = document.createElement('p');
   error.className = 'alert alert-danger';
@@ -250,8 +298,9 @@ export async function openBookingAction({api,id,action,opener,go,exportKind}) {
   footer.setAttribute('style',footerStyle);
   const cancel = document.createElement('button'), submit = document.createElement('button');
   cancel.type = 'button'; cancel.className = 'btn btn-quiet'; cancel.textContent = 'Cancel';
-  submit.type = 'submit'; submit.className = 'btn btn-primary'; submit.textContent = exporting ? 'Download' : reminding ? 'Send' : 'Save';
-  if (!reminding && !exporting && !charging && !contacting) for (const button of [cancel,submit]) button.style.minHeight = 'var(--touch-target-min)';
+  submit.type = 'submit'; submit.className = 'btn btn-primary'; submit.textContent = exporting ? 'Download' : reminding || emailing ? 'Send' : 'Save';
+  if (emailing) submit.disabled = !hasAddress;
+  if (!emailing && !reminding && !exporting && !charging && !contacting) for (const button of [cancel,submit]) button.style.minHeight = 'var(--touch-target-min)';
   footer.append(cancel,submit);
   form.append(footer);
 
@@ -274,7 +323,7 @@ export async function openBookingAction({api,id,action,opener,go,exportKind}) {
     dismiss();
    }
    if (event.key === 'Tab') {
-    const items = [...modal.querySelectorAll('button,input,select,textarea,.modal-close-btn')].filter(item => !item.disabled);
+    const items = [...modal.querySelectorAll('button,input,select,textarea,.modal-close-btn')].filter(item => !item.disabled && !item.closest('[hidden]'));
     const first = items[0], last = items[items.length-1];
     if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
     if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
@@ -314,9 +363,9 @@ export async function openBookingAction({api,id,action,opener,go,exportKind}) {
   form.onsubmit = async event => {
    event.preventDefault();
    event.stopPropagation();
-   if (pending || !form.reportValidity()) return;
+   if (pending || emailing && !hasAddress || !form.reportValidity()) return;
    const trimmedReason = reason?.value.trim();
-   if (!exporting && !reminding && !trimmedReason && !contacting) {
+   if (!exporting && !reminding && !emailing && !trimmedReason && !contacting) {
     reason.setCustomValidity('Enter a reason.');
     reason.reportValidity();
     return;
@@ -343,9 +392,25 @@ export async function openBookingAction({api,id,action,opener,go,exportKind}) {
    const blockValues = {client:trimmedReason,phone:'',type:'Blackout',date:blocking ? date.value : '',total:0,paid:0,notes:trimmedReason};
    pending = true;
    for (const control of [submit,cancel,close,reason,date,phone,email,charge,name,eventType,guests,start,end,notes,lastDay,year,recipient].filter(Boolean)) control.disabled = true;
+   if (emailing) emailKind.disabled = refundGroup.disabled = true;
    form.setAttribute('aria-busy','true');
    error.style.display = 'none';
    try {
+    if (emailing) {
+     let requests = bookingEmailRequests.get(api);
+     if (!requests) { requests = new Map(); bookingEmailRequests.set(api,requests); }
+     const kind = emailKind.value;
+     const send = {kind,to:record.email,...(kind==='refund'?{refundId:refundGroup.value}:{}),
+      ...(kind==='event'&&record.bookingEmailLink?{url:record.bookingEmailLink.url}:{})};
+     const key = JSON.stringify([id,record.revision,send]);
+     const requestId = requests.get(key) || 'email-'+crypto.randomUUID();
+     requests.set(key,requestId);
+     submit.textContent = 'Sending…';
+     await api.emailBooking(id,send,requestId,record.revision);
+     requests.delete(key);
+     if (modal.isConnected) { cleanup(); go('#/booking/'+encodeURIComponent(id),'Email sent.','#bookingDocumentsMenuTrigger'); }
+     return;
+    }
     if (reminding) {
      let requests=reminderRequests.get(api);
      if (!requests) { requests=new Map(); reminderRequests.set(api,requests); }
@@ -394,13 +459,14 @@ export async function openBookingAction({api,id,action,opener,go,exportKind}) {
     error.style.removeProperty('display');
    } finally {
     pending = false;
-    if (reminding) submit.textContent='Send';
+    if (reminding || emailing) submit.textContent='Send';
+    if (emailing) { emailKind.disabled = false; updateEmailPreview(); }
     for (const control of [submit,cancel,close,reason,date,phone,email,charge,name,eventType,guests,start,end,notes,lastDay,year,recipient].filter(Boolean)) control.disabled = false;
     form.removeAttribute('aria-busy');
    }
   };
   body.append(modal);
-  (recipient || year || date || charge || name || reason).focus();
+  (emailKind || recipient || year || date || charge || name || reason).focus();
  } finally {
   opening.delete(api);
  }

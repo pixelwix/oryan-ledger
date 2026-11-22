@@ -1,4 +1,4 @@
-import {shiftDay} from './due-date.mjs?v=2.6.0';
+import {shiftDay} from './due-date.mjs?v=2.7.0';
 
 export function reminderEligible(record,today){
  return !record.cancelled&&!record.archived&&record.type!=='Blackout'&&record.date>today&&record.financialTotal>record.paid&&record.financialTotal!=null;
@@ -10,4 +10,4 @@ export function reminderFields(record){
  };
 }
 // The Apps Script helper carries a copy of the same template; tests compare both (see v2/email-template.mjs).
-export {reminderMessage_} from './email-template.mjs?v=2.6.0';
+export {reminderMessage_} from './email-template.mjs?v=2.7.0';

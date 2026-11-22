@@ -90,12 +90,12 @@ const markup = `
           </div>
         </div>
         <div class="more-dropdown-container">
-          <button type="button" class="btn btn-quiet" id="moreActionsMenuTrigger" data-toggle-menu="moreActionsMenu" aria-controls="moreActionsMenu" aria-haspopup="menu" aria-expanded="false">
+          <button type="button" class="btn btn-quiet" id="moreActionsMenuTrigger" data-toggle-menu="moreActionsMenu" aria-controls="moreActionsMenu" aria-haspopup="menu" aria-expanded="false" disabled>
             More
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
           </button>
           <div class="more-dropdown-menu" id="moreActionsMenu" role="menu" aria-labelledby="moreActionsMenuTrigger">
-            <button type="button" class="more-menu-item" role="menuitem" tabindex="-1" data-action="booking-7">Cancel booking</button>
+            <button type="button" class="more-menu-item" role="menuitem" tabindex="-1" data-booking-status hidden></button>
             <div class="more-menu-divider" role="separator" data-booking-utility-divider></div>
             <button type="button" class="more-menu-item" role="menuitem" tabindex="-1" data-action="booking-2">Record deposit transaction</button>
             <button type="button" class="more-menu-item" role="menuitem" tabindex="-1" data-action="booking-3">Record event refund</button>

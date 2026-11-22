@@ -309,6 +309,9 @@ const BetaLedger = (() => {
           r.total=amount(v.total);r.openingPaid=amount(v.openingPaid);
           r.reconciliation={resolved:true,reason:v.reason,createdAt:meta.at,createdBy:meta.actor};break;
         }
+        case 'bookingEmail': {
+          allowed(v,['reason']);reason(v.reason);break;
+        }
         case 'reminder': {
           if(v.sentEmail!==undefined){
             allowed(v,['kind','date','method','note','reason','sentEmail']);reason(v.reason);

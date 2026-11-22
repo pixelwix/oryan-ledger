@@ -1,21 +1,21 @@
-import {mountSquare} from './square-ui.mjs?v=2.6.0';
-import {calendarIcs} from './calendar-export.mjs?v=2.6.0';
-import {downloadBlob} from './ledger-export.mjs?v=2.6.0';
-import {mountBookingActions,openBookingAction} from './booking-actions.mjs?v=2.6.0';
-import {bookingTransactions,transactionActions} from './transaction-actions.mjs?v=2.6.0';
-import {transactionSheet} from './transaction-sheet.mjs?v=2.6.0';
-import {warmDocuments} from './documents-lifecycle.mjs?v=2.6.0';
-import {refreshContractCard} from './document-state.mjs?v=2.6.0';
-import {bookingRowBuilder,dueDate,rowVariant} from './booking-row.mjs?v=2.6.0';
-import {mountDocuments,contractSheet,downloadDocument,receiptRow,issueReceiptWithProgress} from './documents-ui.mjs?v=2.6.0';
+import {mountSquare} from './square-ui.mjs?v=2.7.0';
+import {calendarIcs} from './calendar-export.mjs?v=2.7.0';
+import {downloadBlob} from './ledger-export.mjs?v=2.7.0';
+import {mountBookingActions,openBookingAction} from './booking-actions.mjs?v=2.7.0';
+import {bookingTransactions,transactionActions} from './transaction-actions.mjs?v=2.7.0';
+import {transactionSheet} from './transaction-sheet.mjs?v=2.7.0';
+import {warmDocuments} from './documents-lifecycle.mjs?v=2.7.0';
+import {refreshContractCard} from './document-state.mjs?v=2.7.0';
+import {bookingRowBuilder,dueDate,rowVariant} from './booking-row.mjs?v=2.7.0';
+import {mountDocuments,contractSheet,downloadDocument,receiptRow,issueReceiptWithProgress} from './documents-ui.mjs?v=2.7.0';
 const rentalText=w=>!w?'—':typeof w==='string'?w:[w.start,w.end].map(t=>t==='00:00'?'Midnight':`${Number(t.slice(0,2))%12||12}:${t.slice(3)} ${Number(t.slice(0,2))<12?'AM':'PM'}`).join(' – ');
-import {commandSheet} from './command-sheet.mjs?v=2.6.0';
-import {readStates} from './read-states.mjs?v=2.6.0';
-import {mountLockedBehavior} from './locked-behaviors.mjs?v=2.6.0';
-import {money,balance} from './adapter.mjs?v=2.6.0';
-import {availableDay} from './calendar-parts.mjs?v=2.6.0';
-import {dayPrice,securityCost,SECURITY_HOURLY} from './day-price.mjs?v=2.6.0';
-import {DEPOSIT_AMOUNT} from './attention-rules.mjs?v=2.6.0';
+import {commandSheet} from './command-sheet.mjs?v=2.7.0';
+import {readStates} from './read-states.mjs?v=2.7.0';
+import {mountLockedBehavior} from './locked-behaviors.mjs?v=2.7.0';
+import {money,balance} from './adapter.mjs?v=2.7.0';
+import {availableDay} from './calendar-parts.mjs?v=2.7.0';
+import {dayPrice,securityCost,SECURITY_HOURLY} from './day-price.mjs?v=2.7.0';
+import {DEPOSIT_AMOUNT} from './attention-rules.mjs?v=2.7.0';
 const $=id=>document.getElementById(id);
 const val=id=>$(id).value;
 const number=id=>Number(val(id));
@@ -78,7 +78,7 @@ async function hydrateDetail(api,route){
   const timeline=document.querySelector('.timeline'),sample=timeline.firstElementChild.cloneNode(true);timeline.replaceChildren();
   bookingTransactions(r).slice().reverse().forEach(t=>{const item=sample.cloneNode(true);const spans=item.querySelectorAll('h5 span');const negative=t.category==='refund'||t.category==='deposit'&&t.kind!=='receive';spans[0].textContent=(t.category==='refund'?'Event refund · ':t.category==='deposit'?'Deposit '+t.kind+' · ':t.opening?'Opening payment · ':'')+(negative?'-':'')+money(t.amount)+' · '+(t.method||'Method not recorded');spans[1].textContent=t.date||'Date not recorded';item.querySelector('button')?.setAttribute('data-transaction-id',t.id);item.querySelector('p').textContent=t.note||'Recorded in the ledger';timeline.append(item);});
   const history=document.querySelector('.history-entry').parentElement,sampleHistory=history.firstElementChild.cloneNode(true);history.replaceChildren();
-  r.activity.slice().reverse().forEach(entry=>{const item=sampleHistory.cloneNode(true);item.querySelector('strong').textContent=entry.at;item.querySelector('.history-meta span').textContent=entry.actor;const paras=item.querySelectorAll('p');paras[0].textContent=entry.type;paras[1].textContent=entry.type==='reminder'&&entry.changes?.some(c=>c.field==='sentEmail')?(entry.changes.find(c=>c.field==='note')?.after||entry.reason):'Reason: '+(entry.reason||'—');history.append(item);});
+  r.activity.slice().reverse().forEach(entry=>{const item=sampleHistory.cloneNode(true);item.querySelector('strong').textContent=entry.at;item.querySelector('.history-meta span').textContent=entry.actor;const paras=item.querySelectorAll('p');paras[0].textContent=entry.type==='bookingEmail'?'Email sent':entry.type;paras[1].textContent=entry.type==='bookingEmail'?entry.reason:entry.type==='reminder'&&entry.changes?.some(c=>c.field==='sentEmail')?(entry.changes.find(c=>c.field==='note')?.after||entry.reason):'Reason: '+(entry.reason||'—');history.append(item);});
   document.querySelector('details summary span').textContent='Change History & Audit Log ('+r.activity.length+' revisions)';
   if(r.balance===0){document.querySelector('.booking-header-card .badge').textContent='Paid in full';document.querySelector('.booking-header-card .badge-overdue')?.remove();document.querySelector('.breakdown-table').parentElement.querySelector('.alert-warning')?.remove();}
   if(r.id!=='sophia'){
@@ -227,6 +227,8 @@ export async function mountFlows({api,route,go,toast,closeSheet}){
    try{await openBookingAction({api,id:row.dataset.id,action:'cancel',opener:cancel,go});}catch(error){toast(error.message);}
   }
  });
+ // The More menu is ready once its record-specific actions and handlers are mounted.
+ if(screen==='booking')$('moreActionsMenuTrigger').disabled=false;
  if(screen==='bookings')await mountBookings(api,toast,go);
  if(screen==='calendar')await mountCalendar(api,go,toast);
  if(screen==='new-booking'){

@@ -1,12 +1,12 @@
-import {bookingIcs} from './calendar-export.mjs?v=2.6.0';
-export {bookingIcs} from './calendar-export.mjs?v=2.6.0';
-import {exportName} from './ledger-export.mjs?v=2.6.0';
-import {balanceDueDate} from './due-date.mjs?v=2.6.0';
-import {balanceAlert,depositAlert} from './attention-rules.mjs?v=2.6.0';
-import {businessToday,localTodayOverride} from './business-date.mjs?v=2.6.0';
+import {bookingIcs} from './calendar-export.mjs?v=2.7.0';
+export {bookingIcs} from './calendar-export.mjs?v=2.7.0';
+import {exportName} from './ledger-export.mjs?v=2.7.0';
+import {balanceDueDate} from './due-date.mjs?v=2.7.0';
+import {balanceAlert,depositAlert} from './attention-rules.mjs?v=2.7.0';
+import {businessToday,localTodayOverride} from './business-date.mjs?v=2.7.0';
 // HTTP is the sole data source in this adapter. Fixture adapter is presentation/price
 // helpers only; no read fallback and no Stage 3 command transport.
-import {createLedgerApi,balance} from './adapter.mjs?v=2.6.0';
+import {createLedgerApi,balance} from './adapter.mjs?v=2.7.0';
 export function localWorkerOrigin(value){const url=new URL(value);if(url.protocol!=='http:'||!['localhost','127.0.0.1','[::1]'].includes(url.hostname)||url.username||url.password||url.pathname!=='/'||url.search||url.hash)throw Error('Worker must be a loopback HTTP origin.');return url.origin;}
 export function hostedOrigin(value){const url=new URL(value);if(url.protocol!=='https:'||url.username||url.password||url.pathname!=='/'||url.search||url.hash)throw Error('Worker must be an exact https origin.');return url.origin;}
 export function createHttpLedgerApi(presentation,{origin,timeout=4000,retries=1,fetcher=fetch,onState=()=>{},auth=null,trustedOrigin=false,today,pageOrigin=globalThis.location?.origin,clock=()=>new Date()}){
@@ -59,7 +59,7 @@ export function createHttpLedgerApi(presentation,{origin,timeout=4000,retries=1,
    catch(e){if(e.status){pending.delete(fingerprint);if(e.status===409){details.clear();renderCache=null;if(command.bookingId)await detail(command.bookingId);}}throw e;}
    finally{entry.promise=null;}})();return entry.promise;
  }
- async function detail(id){const {record,displayMeta,reminderMailEnabled}=await get('/bookings/'+encodeURIComponent(id));details.set(id,record);return {...record,...displayMeta,reminderMailEnabled,balance:balance(record)};}
+ async function detail(id){const {record,displayMeta,reminderMailEnabled,bookingEmailLink}=await get('/bookings/'+encodeURIComponent(id));details.set(id,record);return {...record,...displayMeta,reminderMailEnabled,bookingEmailLink,balance:balance(record)};}
  async function commands(type,id,values={}){
   const r=id?(details.get(id)||await detail(id)):null;
   if(type==='edit'){const fields=['client','phone','contract','type','date','due','covers','projector','audio','bar','security','notes'];values={...Object.fromEntries(fields.map(k=>[k,r[k]])),total:r.total,...values};}
@@ -116,6 +116,7 @@ export function createHttpLedgerApi(presentation,{origin,timeout=4000,retries=1,
   documents:async bookingId=>(await request('/documents',{bookingId})).documents,
   createContract:async(id,values,requestId)=>post('/documents/contract',{bookingId:id,expectedRevision:(await detail(id)).revision,values,requestId},timeout,false),
   issueReceipt:(bookingId,requestId)=>post('/documents/receipt',{bookingId,requestId},timeout),
+  emailBooking:(id,body,requestId,revision)=>post('/bookings/'+encodeURIComponent(id)+'/booking-email',body,45000,false,{'Idempotency-Key':requestId,'If-Match':String(revision)}),
   emailReminder:(id,to,requestId,revision)=>post('/bookings/'+encodeURIComponent(id)+'/reminder-email',{to},45000,false,{'Idempotency-Key':requestId,'If-Match':String(revision)}),
   emailDocument:(id,to,requestId)=>post('/documents/'+encodeURIComponent(id)+'/email',{to},45000,false,{'Idempotency-Key':requestId}),
   retryDocument:id=>post('/documents/'+encodeURIComponent(id)+'/retry',{},timeout,false),

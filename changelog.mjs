@@ -2,6 +2,11 @@
 // RULE: every change staff can notice adds an entry here and bumps the version (the footer number is CHANGELOG[0].version).
 // Write for staff, in plain words. Dates are YYYY-MM-DD (Chicago business date).
 export const CHANGELOG=[
+ {version:'2.7.0',date:'2026-11-21',title:'Send more emails from a booking',items:[
+  'Open Documents → Send email… to preview and send booking confirmations, paid-in-full summaries, refund notices, cancellation notices and event reminders.',
+  'The booking history records each confirmed send.',
+  'The More menu shows the correct action when you reopen a cancelled booking.'
+ ]},
  {version:'2.6.0',date:'2026-11-21',title:'A simpler booking action bar',items:[
   'Record payment, Request payment link and Email reminder are easy to find at the top of a booking whenever they apply.',
   'Open Documents for PDFs and receipts, Edit to update booking details, pricing or dates, and More to book again, cancel or archive. On a phone the menus sit together below the payment buttons.'

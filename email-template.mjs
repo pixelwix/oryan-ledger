@@ -66,5 +66,48 @@ function documentMessage_(r){
   closing:['If you have any questions, just reply to this email.']});
  return {subject:subject,body:body,htmlBody:htmlBody};
 }
+function bookingHours_(value){
+ if(!/^\d{2}:\d{2}–\d{2}:\d{2}$/.test(value||''))return;
+ return value.split('–').map(function(time){
+  if(time==='00:00')return 'Midnight';
+  var hour=Number(time.slice(0,2));
+  return (hour%12||12)+':'+time.slice(3)+(hour<12?' AM':' PM');
+ }).join(' – ');
+}
+function bookingMessage_(r){
+ var f=r.facts,day=emailDay_(r.eventDate),event=['Event date',day],hours=['Event hours',bookingHours_(f.hours)];
+ var balance=['Balance due',f.balance,'money'];
+ var kinds={
+  confirmation:['Booking confirmed','BOOKING CONFIRMED','Your booking at O’Ryan Event Center is confirmed.',
+   event,[hours,['Event type',f.eventType],['Guest count',f.guests],['Agreed total',f.total,'money'],['Paid so far',f.paid,'money'],['Refundable security deposit held',f.depositHeld,'money'],balance],
+   'Please review the details above and reply if anything needs updating.'],
+  paid:['Paid in full','PAID IN FULL',f.paid>0?'Thank you for your payment. Your event is paid in full.':'Thank you for booking with us. Your balance is zero.',
+   ['Total paid',f.paid],[event,['Agreed total',f.total,'money'],['Balance due',f.balance,'money']],
+   'Please keep this payment summary for your records.'],
+  refund:['Refund notice','REFUND',f.security?'We recorded a return of your refundable security deposit.':'We recorded a refund for your event.',
+   ['Refund amount',f.amount],[event,['Refund date',f.refundDate,'date'],['Refund method',f.method]],''],
+  cancellation:['Booking cancelled','CANCELLED','Your booking for '+day+' has been cancelled.',
+   ['Booking status','Cancelled'],[event,['Cancelled on',f.cancelledOn,'date'],['Event payments refunded',f.refunded,'money'],
+    ['Event payments retained',f.retained,'money'],['Security deposit returned',f.depositReturned,'money'],['Security deposit deducted',f.depositDeducted,'money']],''],
+  event:['Event reminder','EVENT REMINDER','We’re looking forward to welcoming you for your event.',
+   event,[hours,balance,['Hall',f.hall]],'']
+ };
+ var kind=kinds[r.kind],subject=kind[0]+" from O'Ryan Event Center";
+ var amount=kind[3][1],label=amount==null?'Event date':kind[3][0];
+ var value=amount==null?day:typeof amount==='number'?emailMoney_(amount):amount;
+ var details=kind[4].filter(function(d){return d[1]!=null&&d[1]!=='';}).map(function(d){
+  return [d[0],d[2]==='money'?emailMoney_(d[1]):d[2]==='date'?emailDay_(d[1]):d[1]];
+ });
+ var closing=[kind[5],'If you have any questions, just reply to this email.'].filter(Boolean);
+ var link=r.kind==='event'&&/^https:\/\/(?:sandbox\.)?square\.link\/u\/[A-Za-z0-9_-]{4,64}$/.test(f.url||'')
+  ?{label:f.linkAmount!=null&&f.linkAmount<f.balance?'Pay '+emailMoney_(f.linkAmount)+' with Square':'Pay securely with Square',url:f.url}:null;
+ var summary=[[label,value]].concat(details.filter(function(d){return d[0]!==label;}));
+ var body=['Hello'+(r.firstName?' '+r.firstName:'')+',',kind[2],
+  summary.map(function(d){return d[0]+': '+d[1];}).join('\n'),
+  link?link.label+': '+link.url:null].concat(closing,["Thank you,\nO'Ryan Event Center\n786 University Avenue West, St. Paul, MN 55104"]).filter(Boolean).join('\n\n');
+ var htmlBody=emailHtml_({title:subject,kicker:kind[1],firstName:r.firstName,paragraphs:[kind[2]],
+  amountLabel:label,value:value,valueSize:24,meta:[],details:summary.slice(1),link:link,closing:closing});
+ return {subject:subject,body:body,htmlBody:htmlBody};
+}
 // END EMAIL_TEMPLATE
-export {emailHtml_,paymentLinkMessage_,reminderMessage_,documentMessage_};
+export {emailHtml_,paymentLinkMessage_,reminderMessage_,documentMessage_,bookingMessage_};
