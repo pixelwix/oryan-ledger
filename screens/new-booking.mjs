@@ -78,7 +78,7 @@ const markup = `
             <label class="form-label" for="guestEmail">
               <span>Email address</span>
             </label>
-            <input type="email" id="guestEmail" class="form-input" placeholder="guest@example.invalid">
+            <input type="email" id="guestEmail" class="form-input" placeholder="[email address]">
           </div>
         </div>
 

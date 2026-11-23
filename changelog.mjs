@@ -2,6 +2,9 @@
 // RULE: every change staff can notice adds an entry here and bumps the version (the footer number is CHANGELOG[0].version).
 // Write for staff, in plain words. Dates are YYYY-MM-DD (Chicago business date).
 export const CHANGELOG=[
+ {version:'2.9.0',date:'2026-11-23',title:'Settings for owners',items:[
+  'Owners can add and remove people, manage Square keys, and see what changed in the audit log.'
+ ]},
  {version:'2.8.0',date:'2026-11-22',title:'Square payments refresh automatically',items:[
   'While Payments is open, new Square payments can appear for review within seconds when live updates are enabled.',
   'You still confirm each payment before it is recorded.'

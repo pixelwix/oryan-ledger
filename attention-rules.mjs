@@ -4,7 +4,7 @@
 //   due         - the balance is due today (20 days before the event)                    -> "Balance due today"
 //   depositDue  - 7 days before the event (or less) and the security deposit is still "Owed" -> "Security deposit not received"
 // worker/read-path.mjs mirrors these rules in SQL; worker/test/attention-rules.test.mjs proves both agree.
-import {shiftDay} from './due-date.mjs?v=2.8.0';
+import {shiftDay} from './due-date.mjs?v=2.9.0';
 export const DEPOSIT_AMOUNT=600;
 const upcoming=(r,today)=>r.date>=today&&!r.cancelled&&r.type!=='Blackout';
 export function balanceAlert(r,today){

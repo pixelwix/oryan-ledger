@@ -1,12 +1,12 @@
-import {bookingIcs} from './calendar-export.mjs?v=2.8.0';
-export {bookingIcs} from './calendar-export.mjs?v=2.8.0';
-import {exportName} from './ledger-export.mjs?v=2.8.0';
-import {balanceDueDate} from './due-date.mjs?v=2.8.0';
-import {balanceAlert,depositAlert} from './attention-rules.mjs?v=2.8.0';
-import {businessToday,localTodayOverride} from './business-date.mjs?v=2.8.0';
+import {bookingIcs} from './calendar-export.mjs?v=2.9.0';
+export {bookingIcs} from './calendar-export.mjs?v=2.9.0';
+import {exportName} from './ledger-export.mjs?v=2.9.0';
+import {balanceDueDate} from './due-date.mjs?v=2.9.0';
+import {balanceAlert,depositAlert} from './attention-rules.mjs?v=2.9.0';
+import {businessToday,localTodayOverride} from './business-date.mjs?v=2.9.0';
 // HTTP is the sole data source in this adapter. Fixture adapter is presentation/price
 // helpers only; no read fallback and no Stage 3 command transport.
-import {createLedgerApi,balance} from './adapter.mjs?v=2.8.0';
+import {createLedgerApi,balance} from './adapter.mjs?v=2.9.0';
 export function localWorkerOrigin(value){const url=new URL(value);if(url.protocol!=='http:'||!['localhost','127.0.0.1','[::1]'].includes(url.hostname)||url.username||url.password||url.pathname!=='/'||url.search||url.hash)throw Error('Worker must be a loopback HTTP origin.');return url.origin;}
 export function hostedOrigin(value){const url=new URL(value);if(url.protocol!=='https:'||url.username||url.password||url.pathname!=='/'||url.search||url.hash)throw Error('Worker must be an exact https origin.');return url.origin;}
 export function createHttpLedgerApi(presentation,{origin,timeout=4000,retries=1,fetcher=fetch,onState=()=>{},auth=null,trustedOrigin=false,today,pageOrigin=globalThis.location?.origin,clock=()=>new Date()}){
@@ -17,8 +17,8 @@ export function createHttpLedgerApi(presentation,{origin,timeout=4000,retries=1,
  // Every Worker call carries the opaque session token; a 401 asks for interactive sign-in and retries once
  // (nothing was processed), a 403 means the account is not allowed (shown on the sign-in screen, never retried).
  async function authHeaders(){return auth?{Authorization:'Bearer '+await auth.ensureToken()}:{};}
- async function authFailure(response){
-  const code=(await response.json().catch(()=>({})))?.error||'unauthorized';auth.reject(response.status,code);
+ async function authFailure(response,data){
+  const code=(data??await response.json().catch(()=>({})))?.error||'unauthorized';auth.reject(response.status,code);
   const e=Error(response.status===403?'This account is not allowed to open the ledger.':'Your sign-in could not be verified.');e.status=response.status;e.code=code;e.auth=true;e.retry=false;return e;
  }
  async function get(path,params={}){
@@ -99,6 +99,17 @@ export function createHttpLedgerApi(presentation,{origin,timeout=4000,retries=1,
  }
  return {...helpers,beginRead(){renderCache=new Map();},endRead(){renderCache=null;},mode:'http',get today(){return getToday();},get documentsEnabled(){return documentsEnabled;},set documentsEnabled(value){documentsEnabled=value!==false;},list,search:q=>list({q}),
   detail,cachedDetail:id=>{const r=details.get(id);return r?{...r,client:r.guest??r.client,balance:balance(r)}:null;},
+  async settings(path,{method='GET',body,signal}={}){
+   const response=await fetcher(new URL(path,origin),{
+    method,headers:{...await authHeaders(),...(body===undefined?{}:{'Content-Type':'application/json'})},
+    credentials:'omit',cache:'no-store',signal:signal?AbortSignal.any([signal,AbortSignal.timeout(30000)]):AbortSignal.timeout(30000),
+    ...(body===undefined?{}:{body:JSON.stringify(body)})
+   });
+   const data=await response.json().catch(()=>({}));
+   if(auth&&response.status===401&&data.error!=='reauth_required'&&path!=='/settings/reauth')throw await authFailure(response,data);
+   if(!response.ok)throw Object.assign(Error('Settings request failed.'),{status:response.status,code:data.error});
+   return data;
+  },
   me:()=>request('/me'),counts:()=>get('/counts'),summary:async()=>{const [s,p]=await Promise.all([get('/summary'),get('/payments',{limit:1})]);return {...s,balance:s.balanceToCollect,novemberPayments:s.monthPayments,novemberEvents:s.eventsThisMonth,depositHeld:p.summary.depositHeld};},
   attention:async()=> (await get('/attention')).items,insights:year=>get('/insights',{year:year||getToday().slice(0,4)}),payments,
   calendar:async(year,month)=>(await get('/calendar',{year:year??getToday().slice(0,4),month:month??getToday().slice(5,7)})).records,

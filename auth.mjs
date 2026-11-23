@@ -85,6 +85,31 @@ export function createAuth({clientId, origin, fetcher=fetch, storage=safeStorage
    gis.cancel?.();
    gis.renderButton(element,{type:'standard',theme:options.theme||'outline',size:'large',text:'signin_with',shape:'rectangular',logo_alignment:'left',width:options.width||320});
   },
+  async reauth(element,{signal,theme='outline',width=250}={}){
+   if(!valid())throw new AuthRequired('session_expired');
+   await ready();
+   signal?.throwIfAborted();
+   const nonce=randomNonce(cryptoApi), attempt=generation, started=now();
+   return new Promise((resolve,reject)=>{
+    const abort=()=>{gis.cancel?.();reject(signal.reason);};
+    signal?.addEventListener('abort',abort,{once:true});
+    gis.cancel?.();
+    try{
+     gis.initialize({client_id:clientId,nonce,auto_select:false,cancel_on_tap_outside:false,callback:response=>{
+      if(signal?.aborted)return;
+      signal?.removeEventListener('abort',abort);
+      const credential=response?.credential,payload=decodeJwtPayload(credential);
+      if(attempt!==generation||!valid()||payload?.aud!==clientId||payload.nonce!==nonce||
+         !(payload.exp>now())||!(payload.iat>=started-60&&payload.iat<=now()+60)||
+         String(payload.email).trim().toLowerCase()!==email){
+       reject(new AuthRequired('bad_credential'));return;
+      }
+      resolve(credential);
+     }});
+     gis.renderButton(element,{type:'standard',theme,size:'large',text:'continue_with',shape:'rectangular',logo_alignment:'left',width});
+    }catch(error){signal?.removeEventListener('abort',abort);reject(error);}
+   });
+  },
   async ensureToken(){if(valid())return token;if(token)ended();else if(!['expired','not-allowed','rejected','trouble'].includes(state))emit('signed-out');return new Promise(resolve=>waiters.add(resolve));},
   reject(status,code){if(code==='jwks_unavailable'||code==='unknown_key'){emit('trouble',{code});return;}forget();clearStorage();emit(status===403?'not-allowed':['expired','missing_token','session_expired','session_revoked'].includes(code)?'expired':'rejected',{code});},
   trouble(code='network'){emit('trouble',{code});},retrying(){if(valid())emit('signed-in');},

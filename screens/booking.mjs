@@ -56,7 +56,7 @@ const markup = `
         <p style="font-size: 13px; color: var(--muted); margin-top: 4px;">{{v4}}</p>
         <div style="display: flex; gap: 16px; margin-top: 8px; font-size: 12px; color: var(--text);">
           <span>Phone: <strong>{{v5}}</strong></span>
-          <span>Email: <strong>martinez.ray@example.invalid</strong></span>
+          <span>Email: <strong>[email address]</strong></span>
         </div>
       </div>
 

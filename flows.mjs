@@ -1,21 +1,21 @@
-import {mountSquare} from './square-ui.mjs?v=2.8.0';
-import {calendarIcs} from './calendar-export.mjs?v=2.8.0';
-import {downloadBlob} from './ledger-export.mjs?v=2.8.0';
-import {mountBookingActions,openBookingAction} from './booking-actions.mjs?v=2.8.0';
-import {bookingTransactions,transactionActions} from './transaction-actions.mjs?v=2.8.0';
-import {transactionSheet} from './transaction-sheet.mjs?v=2.8.0';
-import {warmDocuments} from './documents-lifecycle.mjs?v=2.8.0';
-import {refreshContractCard} from './document-state.mjs?v=2.8.0';
-import {bookingRowBuilder,dueDate,rowVariant} from './booking-row.mjs?v=2.8.0';
-import {mountDocuments,contractSheet,downloadDocument,receiptRow,issueReceiptWithProgress} from './documents-ui.mjs?v=2.8.0';
+import {mountSquare} from './square-ui.mjs?v=2.9.0';
+import {calendarIcs} from './calendar-export.mjs?v=2.9.0';
+import {downloadBlob} from './ledger-export.mjs?v=2.9.0';
+import {mountBookingActions,openBookingAction} from './booking-actions.mjs?v=2.9.0';
+import {bookingTransactions,transactionActions} from './transaction-actions.mjs?v=2.9.0';
+import {transactionSheet} from './transaction-sheet.mjs?v=2.9.0';
+import {warmDocuments} from './documents-lifecycle.mjs?v=2.9.0';
+import {refreshContractCard} from './document-state.mjs?v=2.9.0';
+import {bookingRowBuilder,dueDate,rowVariant} from './booking-row.mjs?v=2.9.0';
+import {mountDocuments,contractSheet,downloadDocument,receiptRow,issueReceiptWithProgress} from './documents-ui.mjs?v=2.9.0';
 const rentalText=w=>!w?'—':typeof w==='string'?w:[w.start,w.end].map(t=>t==='00:00'?'Midnight':`${Number(t.slice(0,2))%12||12}:${t.slice(3)} ${Number(t.slice(0,2))<12?'AM':'PM'}`).join(' – ');
-import {commandSheet} from './command-sheet.mjs?v=2.8.0';
-import {readStates} from './read-states.mjs?v=2.8.0';
-import {mountLockedBehavior} from './locked-behaviors.mjs?v=2.8.0';
-import {money,balance} from './adapter.mjs?v=2.8.0';
-import {availableDay} from './calendar-parts.mjs?v=2.8.0';
-import {dayPrice,securityCost,SECURITY_HOURLY} from './day-price.mjs?v=2.8.0';
-import {DEPOSIT_AMOUNT} from './attention-rules.mjs?v=2.8.0';
+import {commandSheet} from './command-sheet.mjs?v=2.9.0';
+import {readStates} from './read-states.mjs?v=2.9.0';
+import {mountLockedBehavior} from './locked-behaviors.mjs?v=2.9.0';
+import {money,balance} from './adapter.mjs?v=2.9.0';
+import {availableDay} from './calendar-parts.mjs?v=2.9.0';
+import {dayPrice,securityCost,SECURITY_HOURLY} from './day-price.mjs?v=2.9.0';
+import {DEPOSIT_AMOUNT} from './attention-rules.mjs?v=2.9.0';
 const $=id=>document.getElementById(id);
 const val=id=>$(id).value;
 const number=id=>Number(val(id));
@@ -42,7 +42,7 @@ async function hydrateDetail(api,route){
   document.querySelectorAll('a[href*="/booking/sophia"]').forEach(a=>a.href=a.getAttribute('href').replace('/booking/sophia','/booking/'+encodeURIComponent(r.id)));
  }
  if(route.screen==='booking'){
-  const walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT);let node;while((node=walker.nextNode())){node.textContent=node.textContent.replace('martinez.ray@example.invalid',r.email||'—').replace('10:00 AM – Midnight',rentalText(r.rentalWindow)).replace('160 Guests',r.guestCount!=null?String(r.guestCount)+' Guests':'—');}
+  const walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT);let node;while((node=walker.nextNode())){node.textContent=node.textContent.replace('[email address]',r.email||'—').replace('10:00 AM – Midnight',rentalText(r.rentalWindow)).replace('160 Guests',r.guestCount!=null?String(r.guestCount)+' Guests':'—');}
  }
  if(route.screen==='record-payment'){$('paymentDate').value=api.today;$('paymentAmount').value=r.balance?.toFixed(2)||'0.00';if(r.balance==null){$('paymentAmount').setCustomValidity('Set the agreed price before recording a payment.');}}
  if(route.screen==='edit-booking'){

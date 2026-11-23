@@ -1,6 +1,6 @@
 // Reuses the locked payment sheet and form controls for the mockup's action buttons.
-import paymentScreen from './screens/record-payment.mjs?v=2.8.0';
-import {readStates} from './read-states.mjs?v=2.8.0';
+import paymentScreen from './screens/record-payment.mjs?v=2.9.0';
+import {readStates} from './read-states.mjs?v=2.9.0';
 export async function commandSheet({api,id,kind,toast,go,opener}){
  const record=await api.detail(id),sample=document.createElement('div');sample.innerHTML=paymentScreen(await api.presentation('record-payment'));
  const modal=sample.querySelector('.modal-backdrop'),form=modal.querySelector('form');modal.id='commandModal';form.id='commandForm';form.dataset.commandForm='true';

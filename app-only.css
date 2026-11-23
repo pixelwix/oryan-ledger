@@ -20,3 +20,62 @@
 .square-row:first-child { border-top: 0; }
 .square-main { min-width: 0; }
 .square-main .form-label-note { margin: 0; overflow-wrap: anywhere; }
+
+/* Settings (owner-approved 2026-11-23). */
+.settings-grid { display: grid; grid-template-columns: minmax(0, 205px) minmax(0, 1fr); gap: var(--space-6); align-items: start; }
+.settings-sections { display: grid; gap: var(--space-1); }
+.settings-sections .nav-link { align-items: flex-start; }
+#settings-screen .muted { color: var(--muted); overflow-wrap: anywhere; }
+.settings-note { margin-top: var(--space-3); }
+.settings-note + .form-group { margin-top: var(--space-4); }
+.settings-content { min-width: 0; }
+@media (max-width: 768px) { .settings-page-header { display: none; } }
+.settings-content .page-header { margin-bottom: var(--space-4); }
+.settings-content h2 { font-size: 20px; }
+.settings-content .card + .card { margin-top: var(--space-4); }
+:where(#settings-screen) .row-actions { display: flex; justify-content: flex-end; gap: var(--space-2); flex-wrap: wrap; }
+.person-status { max-width: 190px; }
+.settings-content td { overflow-wrap: anywhere; }
+.settings-content .page-actions { flex-wrap: wrap; }
+#settings-screen .square-row { padding: 0; border-top: 0; }
+#settings-screen .square-row + .square-row, #settings-screen .square-row + .form-group { border-top: 1px solid var(--line-subtle); margin-top: var(--space-4); padding-top: var(--space-4); }
+#settings-screen .square-secret { flex: 1; min-width: 0; }
+.secret-undo { display: inline-block; margin-top: var(--space-1); }
+.secret-undo[aria-disabled="true"] { color: var(--muted); opacity: .6; text-decoration: none; cursor: default; pointer-events: none; }
+.settings-content .square-result { margin-top: var(--space-3); }
+#settings-screen .square-mode { margin-bottom: var(--space-3); }
+#settings-screen .square-mode-options { gap: 0; }
+#settings-screen .square-mode-options .btn:first-child { border-start-end-radius: 0; border-end-end-radius: 0; }
+#settings-screen .square-mode-options .btn:last-child { border-start-start-radius: 0; border-end-start-radius: 0; }
+#settings-screen .webhook-url, #settings-screen .location-input { min-width: 0; }
+.audit-filters { display: flex; flex-wrap: wrap; gap: var(--space-3); margin-bottom: var(--space-4); }
+.audit-filters label { flex: 1 1 140px; }
+.production-strip { position: sticky; top: 65px; z-index: 39; text-align: center; padding: var(--space-2) var(--space-4); background: var(--accent-surface); color: var(--accent-text); font-weight: 700; border-bottom: 1px solid var(--line); }
+@media (max-width: 768px) {
+  .settings-enabled .mobile-nav-items { grid-template-columns: repeat(2, minmax(0, 1.5fr)) calc(100% / 6) repeat(3, minmax(0, 1fr)); }
+  .production-strip { top: 56px; }
+  .settings-grid { grid-template-columns: minmax(0, 1fr); gap: var(--space-4); }
+  .settings-sections { display: flex; flex-wrap: wrap; }
+  .settings-sections .nav-link { min-height: var(--touch-target-min); justify-content: center; }
+  .person-status { max-width: none; }
+  .settings-content .ledger-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: var(--space-3); }
+  .settings-content .ledger-row td:first-child, .settings-content .ledger-row td:last-child { grid-column: 1 / -1; }
+  .settings-content .ledger-row td:first-child { border-bottom: 1px solid var(--line-subtle); padding-bottom: var(--space-2); margin-bottom: var(--space-1); }
+  .settings-content .ledger-row-mobile-actions { justify-content: flex-start; }
+  .settings-content .ledger-row-mobile-actions .btn { flex: 1 1 calc(50% - var(--space-2)); }
+}
+
+
+.settings-dialog[hidden] { display: none; }
+.settings-dialog:not([hidden]) { display: flex; }
+.settings-dialog button:disabled, .settings-content button:disabled { opacity: .6; cursor: default; }
+.settings-dialog .square-result { margin-top: var(--space-3); }
+.settings-content .ledger-row-mobile-actions:empty { display: none; }
+.settings-reauth-google { display: flex; align-items: center; }
+.settings-banner[hidden] { display: none; }
+.settings-dialog .alert[hidden], .settings-content .alert[hidden] { display: none; }
+
+/* Keep the booking actions below the sticky production strip on desktop. */
+@media (min-width: 769px) {
+ .production-strip ~ main .primary-action-bar { top: calc(76px + 1lh + 2 * var(--space-2) + 1px); }
+}

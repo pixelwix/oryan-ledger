@@ -1,13 +1,14 @@
-import {startDocumentsWarm,DOCUMENTS_WARM_MINUTES} from './documents-lifecycle.mjs?v=2.8.0';
-import {closeOpenMenus,closeRowMenu,installMenuAutoClose,positionBookingMenu,positionRowMenu,rowMenuKeyboard} from './row-menu.mjs?v=2.8.0';
-import {createHttpLedgerApi} from './http-adapter.mjs?v=2.8.0';
-import {readStates} from './read-states.mjs?v=2.8.0';
-import {createLedgerApi,money,balance} from './adapter.mjs?v=2.8.0';
-import {parseRoute} from './routes.mjs?v=2.8.0';
-import {CHANGELOG,VERSION} from './changelog.mjs?v=2.8.0';
-import {savedTheme,applyTheme,effectiveTheme,syncTheme} from './theme.mjs?v=2.8.0';
-import {mountFlows} from './flows.mjs?v=2.8.0';
-const presentation=await fetch('./presentation.json?v=2.8.0').then(r=>r.json());
+import {startDocumentsWarm,DOCUMENTS_WARM_MINUTES} from './documents-lifecycle.mjs?v=2.9.0';
+import {closeOpenMenus,closeRowMenu,installMenuAutoClose,positionBookingMenu,positionRowMenu,rowMenuKeyboard} from './row-menu.mjs?v=2.9.0';
+import {createHttpLedgerApi} from './http-adapter.mjs?v=2.9.0';
+import {readStates} from './read-states.mjs?v=2.9.0';
+import {createLedgerApi,money,balance} from './adapter.mjs?v=2.9.0';
+import {parseRoute} from './routes.mjs?v=2.9.0';
+import {CHANGELOG,VERSION} from './changelog.mjs?v=2.9.0';
+import {savedTheme,applyTheme,effectiveTheme,syncTheme} from './theme.mjs?v=2.9.0';
+import {settingsAccess, syncSettingsChrome} from './settings-access.mjs?v=2.9.0';
+import {mountFlows} from './flows.mjs?v=2.9.0';
+const presentation=await fetch('./presentation.json?v=2.9.0').then(r=>r.json());
 // A hosted Worker address and Google client ID come ONLY from the app's own app-config.json (public values written at deploy time).
 // The URL can only select a loopback Worker for local development; it can never point the app (and its token) at another server.
 const appConfig=await fetch('./app-config.json',{cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null);
@@ -16,9 +17,20 @@ const trustedOrigin=Boolean(appConfig?.workerOrigin&&appConfig?.googleClientId);
 const workerOrigin=trustedOrigin?appConfig.workerOrigin:params.get('worker');
 const clientId=trustedOrigin?appConfig.googleClientId:(workerOrigin?params.get('client'):'');
 let auth=null,signin=null,me=null,retryWaiter=null,documentsWarm=null;
+let settingsOverview=null,settingsScreen=null,resumeSettings=false;
+function clearSettingsAccess(){
+ resumeSettings||=settingsAccess(me,settingsOverview).owner;
+ settingsScreen?.abort();settingsScreen=null;
+ settingsOverview=null;me=null;
+ document.querySelector('#settings-screen')?.replaceChildren();
+ document.getElementById('accountControlFooter')?.remove();
+ syncSettingsChrome(document.body,{owner:false});
+}
 if(clientId){
- const [{createAuth},{mountSignIn}]=await Promise.all([import('./auth.mjs?v=2.8.0'),import('./signin-ui.mjs?v=2.8.0')]);
- auth=createAuth({clientId,origin:workerOrigin,onState:(state,info)=>{signin?.render(state,info);documentsWarm?.sync();}});
+ const [{createAuth},{mountSignIn}]=await Promise.all([import('./auth.mjs?v=2.9.0'),import('./signin-ui.mjs?v=2.9.0')]);
+ auth=createAuth({clientId,origin:workerOrigin,onState:(state,info)=>{if(state!=='signed-in'||me?.actor&&me.actor!==info.email)clearSettingsAccess();
+  signin?.render(state,info);documentsWarm?.sync();
+  if(state==='signed-in'&&resumeSettings){resumeSettings=false;queueMicrotask(()=>gate().then(render));}}});
  signin=mountSignIn({auth,toast,onRetry:()=>{if(retryWaiter){const resolve=retryWaiter;retryWaiter=null;resolve();}else auth.start().catch(()=>{});}});
 }
 export const ledgerApi=workerOrigin?createHttpLedgerApi(presentation,{origin:workerOrigin,auth,trustedOrigin,today:appConfig?.today}):createLedgerApi(presentation);
@@ -35,9 +47,14 @@ export function go(hash,message,noticeFocus){
 export function closeSheet(){go(returnHash||'#/booking/'+(activeRoute.id||'sophia'));focusId=returnFocus;}
 export async function render(){
  if(activeRoute?.screen==='booking'&&location.hash!==mountedHash)closeOpenMenus();
+ const identity=auth?.signedIn?me:null;
+ const access=settingsAccess(identity,settingsOverview);
+ const route=parseRoute(location.hash);
+ if(route.screen==='settings'&&!access.owner){location.replace('#/overview');return;}
+ settingsScreen?.abort();settingsScreen=null;
  const ticket=++renderSequence;
  document.documentElement.removeAttribute('data-ready');
- const hash=location.hash,route=parseRoute(hash);
+ const hash=location.hash;
  const notice=routeToast?.hash===location.hash?routeToast:null;
  routeToast=undefined;
  const loading=workerOrigin?setTimeout(()=>{if(ticket===renderSequence)states.show('loading');},120):null;
@@ -51,17 +68,25 @@ export async function render(){
    if(['bookings','new-booking'].includes(route.screen))await ledgerApi.list();
    if(['booking','record-payment','edit-booking'].includes(route.screen))await ledgerApi.detail(route.id);
   }
-  const module=await import('./screens/'+route.screen+'.mjs?v=2.8.0');
-  const presentation=await ledgerApi.presentation(route.screen);
-  if(ticket!==renderSequence||hash!==location.hash){clearTimeout(loading);return;}
+  const module=await import('./screens/'+route.screen+'.mjs?v=2.9.0');
+  const presentation=await ledgerApi.presentation(route.screen==='settings'?'overview':route.screen);
+  if(ticket!==renderSequence||hash!==location.hash||access.owner&&identity!==me){clearTimeout(loading);return;}
   const style=document.getElementById('routeStyles')||document.head.appendChild(Object.assign(document.createElement('style'),{id:'routeStyles'}));style.textContent=module.styles;
-  const body=document.createElement('body');body.innerHTML=module.default(presentation);{const kept=document.querySelector('.app-header'),fresh=body.querySelector('.app-header');
+  const body=document.createElement('body');body.innerHTML=module.default(presentation);syncSettingsChrome(body,{...access,active:route.screen==='settings',production:settingsOverview?.environment==='production'});{const kept=document.querySelector('.app-header'),fresh=body.querySelector('.app-header');
    // One header for the whole app: keep the same element on every screen, change only which tab is current. Nothing in it moves.
    if(kept&&fresh){for(const link of kept.querySelectorAll('.nav-link')){const next=fresh.querySelector('.nav-link[href="'+link.getAttribute('href')+'"]');if(next){link.classList.toggle('active',next.classList.contains('active'));if(next.hasAttribute('aria-current'))link.setAttribute('aria-current',next.getAttribute('aria-current'));else link.removeAttribute('aria-current');}}fresh.replaceWith(kept);}}
   document.body.replaceWith(body);
+  if(access.owner)syncSettingsChrome(body,{...access,active:route.screen==='settings',production:settingsOverview?.environment==='production'});
   if(route.screen==='insights'&&activeRoute?.screen!=='insights')window.scrollTo(0,0);
   activeRoute=route;mountedHash=hash;document.body.style.overflow='';syncTheme();
-  await mountFlows({api:ledgerApi,route,go,toast,closeSheet});
+  if(route.screen==='settings'){
+   settingsScreen=new AbortController();
+   const {signal}=settingsScreen;
+   await module.mount({api:ledgerApi,auth,route,access,actor:identity.actor,signal,toast,refresh:environment=>{
+    settingsOverview={...settingsOverview,environment};
+    syncSettingsChrome(document.body,{...access,active:true,production:environment==='production'});
+   }});
+  }else await mountFlows({api:ledgerApi,route,go,toast,closeSheet});
   if(ticket!==renderSequence||hash!==location.hash){clearTimeout(loading);return;}
   if(focusId){document.querySelector(focusId)?.focus({preventScroll:true});focusId=null;}
   ledgerApi.endRead?.();
@@ -136,10 +161,25 @@ document.addEventListener('keydown',e=>{
   if(!dialog.contains(document.activeElement)){e.preventDefault();first?.focus();}else if(e.shiftKey&&document.activeElement===first){e.preventDefault();last?.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first?.focus();}
  }
 });
-async function refreshMe(){me=await ledgerApi.me();}
+async function refreshMe(){
+ const token=auth.token;
+ const identity=await ledgerApi.me();
+ let overview=null;
+ if(settingsAccess(identity).owner){
+  try{overview=await ledgerApi.settings('/settings/overview');}
+  catch(error){if(error.auth)throw error;}
+ }
+ if(token!==auth.token)throw Error('The session changed.');
+ me=identity;settingsOverview=overview;
+}
 // Sign-in gate: nothing is requested or shown until a valid token exists and the Worker confirms the account is allowed.
 // A 401/403 puts the sign-in screen above the app; the gate then waits for the user and checks again.
-async function gate(){
+let gatePromise;
+function gate(){
+ if(!gatePromise)gatePromise=verifySession().finally(()=>{gatePromise=null;});
+ return gatePromise;
+}
+async function verifySession(){
  for(;;){
   try{await auth.ensureToken();await refreshMe();auth.retrying();return;}
   catch(error){if(error?.auth&&!['jwks_unavailable','unknown_key'].includes(error.code))continue;if(!error?.auth)auth.trouble('network');await new Promise(resolve=>{retryWaiter=resolve;});auth.retrying();}
@@ -149,7 +189,11 @@ async function bootAuth(){await auth.start();await gate();}
 if(auth)await bootAuth();
 ledgerApi.documentsEnabled=appConfig?.documentsEnabled!==false;
 documentsWarm=startDocumentsWarm(ledgerApi,{enabled:appConfig?.documentsEnabled!==false,minutes:appConfig?.documentsWarmMinutes??DOCUMENTS_WARM_MINUTES,allowed:()=>!auth||auth.state==='signed-in'});
-window.addEventListener('hashchange',render);await render();
+window.addEventListener('hashchange',render);
+if(auth)window.addEventListener('storage',()=>{
+ if(auth.signedIn&&!me)gate().then(()=>render());
+});
+await render();
 
 // Refresh only on a changed business day; preserve entered sheet values.
 let displayedBusinessDay=ledgerApi.today;
