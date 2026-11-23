@@ -2,6 +2,10 @@
 // RULE: every change staff can notice adds an entry here and bumps the version (the footer number is CHANGELOG[0].version).
 // Write for staff, in plain words. Dates are YYYY-MM-DD (Chicago business date).
 export const CHANGELOG=[
+ {version:'2.9.1',date:'2026-11-23',title:'Settings button on phones',items:[
+  'On phones, Settings is now a round gear button at the top, next to the light and dark switch, instead of a sixth tab at the bottom.',
+  'People who were already on the access list before Settings existed can now be edited or removed, and adding the first person no longer affects anyone else’s access.'
+ ]},
  {version:'2.9.0',date:'2026-11-23',title:'Settings for owners',items:[
   'Owners can add and remove people, manage Square keys, and see what changed in the audit log.'
  ]},

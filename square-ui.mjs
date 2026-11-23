@@ -1,9 +1,9 @@
 // Square controls for the owner: a payment link on a booking, and a review list on Payments.
 // Everything here is hidden unless the Worker says Square is configured for this owner, so the
 // locked screens are unchanged (and the pixel baselines too) until Square is switched on.
-import paymentScreen from './screens/record-payment.mjs?v=2.9.0';
-import {paymentLinkMessage_} from './email-template.mjs?v=2.9.0';
-import {reminderFields} from './reminder-message.mjs?v=2.9.0';
+import paymentScreen from './screens/record-payment.mjs?v=2.9.1';
+import {paymentLinkMessage_} from './email-template.mjs?v=2.9.1';
+import {reminderFields} from './reminder-message.mjs?v=2.9.1';
 
 const el=(tag,className,text)=>{const n=document.createElement(tag);if(className)n.className=className;if(text)n.textContent=text;return n;};
 const money=n=>'$'+Number(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});

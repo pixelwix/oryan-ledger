@@ -1,5 +1,5 @@
-import paymentScreen from './screens/record-payment.mjs?v=2.9.0';
-import {validDocumentEmail} from './document-email-address.mjs?v=2.9.0';
+import paymentScreen from './screens/record-payment.mjs?v=2.9.1';
+import {validDocumentEmail} from './document-email-address.mjs?v=2.9.1';
 
 const drafts = new WeakMap();
 const opening = new WeakSet();

@@ -1,4 +1,4 @@
-import {securityCost} from './day-price.mjs?v=2.9.0';
+import {securityCost} from './day-price.mjs?v=2.9.1';
 // Original page calculations/filter behavior, externalized for the SPA.
 export function mountLockedBehavior(screen, api, route, toast, record) {
 if (screen === 'bookings') {

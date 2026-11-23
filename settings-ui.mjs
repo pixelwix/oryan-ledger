@@ -1,4 +1,4 @@
-import {auditDescription,credentialStatus,personStatus,settingsDate,settingsError,storageWarning,visiblePeople} from './settings-format.mjs?v=2.9.0';
+import {auditDescription,credentialStatus,personStatus,settingsDate,settingsError,storageWarning,visiblePeople} from './settings-format.mjs?v=2.9.1';
 
 const sections={people:'People',square:'Square',audit:'Audit log'};
 const squarePath='/settings/square';
