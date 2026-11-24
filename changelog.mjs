@@ -2,6 +2,13 @@
 // RULE: every change staff can notice adds an entry here and bumps the version (the footer number is CHANGELOG[0].version).
 // Write for staff, in plain words. Dates are YYYY-MM-DD (Chicago business date).
 export const CHANGELOG=[
+ {version:'2.11.2',date:'2026-11-24',title:'Rental agreement wording in PDFs',items:[
+  'Rental agreement previews and saved PDFs include the agreement wording on every page where it belongs.'
+ ]},
+ {version:'2.11.1',date:'2026-11-24',title:'Rental agreement PDFs',items:[
+  'Previewing or saving a rental agreement with edited wording works again.',
+  'Previews and saved copies identify estimated page counts.'
+ ]},
  {version:'2.11.0',date:'2026-11-24',title:'Edit rental agreement wording',items:[
   'Owners can edit and preview rental agreement wording, publish a new version, and restore earlier wording from version history.',
   'Contracts already issued keep the wording they were created with.'

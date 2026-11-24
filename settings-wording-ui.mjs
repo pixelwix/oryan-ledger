@@ -1,7 +1,7 @@
-import {actions,badge,button,card,field,group,heading,node} from './settings-controls.mjs?v=2.11.0';
-import {settingsDate} from './settings-format.mjs?v=2.11.0';
+import {actions,badge,button,card,field,group,heading,node} from './settings-controls.mjs?v=2.11.2';
+import {settingsDate} from './settings-format.mjs?v=2.11.2';
 import {editClause,emptyDocument,hasWordingChange,numbering,paragraphs,pinned,referenceLabels,sectionNames,
- tabFor,tabNames,tabs,validation,versionName,wordingError,wordingPath,wordingSnapshot,wrapSelection} from './settings-wording-format.mjs?v=2.11.0';
+ tabFor,tabNames,tabs,validation,versionName,wordingError,wordingPath,wordingSnapshot,wrapSelection} from './settings-wording-format.mjs?v=2.11.2';
 
 const timing='Changes appear on contracts created after you publish. Contracts already issued keep the wording they were created with.';
 const publicationTiming='Staff see the new wording on contracts created after publication. Issued contracts keep their wording.';
@@ -393,6 +393,10 @@ export function wordingSettings({content,banner,apiCall,write,modal,mask,actor,s
    open.target='_blank';
    open.rel='noopener noreferrer';
    panel.replaceChildren(frame,open);
+   if(result.pageCountEstimated===true){
+    const unit=result.pageCount===1?' page':' pages';
+    panel.append(node('p','muted','Estimated length: '+result.pageCount+unit));
+   }
    previewedRevision=revisionAtPreview;
    handle.submit.disabled=!canPublish();
   }).catch(()=>{

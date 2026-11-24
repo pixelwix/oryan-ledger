@@ -1,6 +1,6 @@
-import {businessToday} from './business-date.mjs?v=2.11.0';
-import {shiftDay} from './due-date.mjs?v=2.11.0';
-import {reminderFields} from './reminder-message.mjs?v=2.11.0';
+import {businessToday} from './business-date.mjs?v=2.11.2';
+import {shiftDay} from './due-date.mjs?v=2.11.2';
+import {reminderFields} from './reminder-message.mjs?v=2.11.2';
 
 export const bookingEmailLabels = Object.freeze({
  confirmation:'Booking confirmation', paid:'Paid in full', refund:'Refund notice',

@@ -1,13 +1,13 @@
-import {auditDescription,credentialStatus,personStatus,settingsDate,settingsError,storageWarning,visiblePeople} from './settings-format.mjs?v=2.11.0';
+import {auditDescription,credentialStatus,personStatus,settingsDate,settingsError,storageWarning,visiblePeople} from './settings-format.mjs?v=2.11.2';
 
-import {node,button,group,heading,field} from './settings-controls.mjs?v=2.11.0';
-import {phase2Error} from './settings-phase2-format.mjs?v=2.11.0';
-import {settingsSections as sections} from './routes.mjs?v=2.11.0';
-import {helperSettings} from './settings-helper-ui.mjs?v=2.11.0';
-import {emailSettings} from './settings-email-ui.mjs?v=2.11.0';
-import {healthSettings} from './settings-health-ui.mjs?v=2.11.0';
-import {wordingSettings} from './settings-wording-ui.mjs?v=2.11.0';
-import {wordingError,wordingPath} from './settings-wording-format.mjs?v=2.11.0';
+import {node,button,group,heading,field} from './settings-controls.mjs?v=2.11.2';
+import {phase2Error} from './settings-phase2-format.mjs?v=2.11.2';
+import {settingsSections as sections} from './routes.mjs?v=2.11.2';
+import {helperSettings} from './settings-helper-ui.mjs?v=2.11.2';
+import {emailSettings} from './settings-email-ui.mjs?v=2.11.2';
+import {healthSettings} from './settings-health-ui.mjs?v=2.11.2';
+import {wordingSettings} from './settings-wording-ui.mjs?v=2.11.2';
+import {wordingError,wordingPath} from './settings-wording-format.mjs?v=2.11.2';
 
 const phase2={helper:helperSettings,email:emailSettings,health:healthSettings,wording:wordingSettings};
 const squarePath='/settings/square';

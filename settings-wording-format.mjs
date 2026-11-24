@@ -1,4 +1,4 @@
-import {SECTION_IDS,validateClauses,renderMarkup} from './contract-clauses.mjs?v=2.11.0';
+import {SECTION_IDS,validateClauses,renderMarkup} from './contract-clauses.mjs?v=2.11.2';
 
 export const wordingPath='/settings/contract/wording';
 export const tabs={cover:['cover'],terms:['terms-a','terms-b','terms-c'],checkoff:['addendum']};

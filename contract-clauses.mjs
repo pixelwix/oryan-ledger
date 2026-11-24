@@ -22,6 +22,7 @@ export function renderMarkup(text, fields = {}) {
       /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/u.test(text)) {
     throw new Error('Invalid wording field');
   }
+  if (text.includes('@@')) throw new Error('Reserved contract slot delimiter');
   const stack = [];
   let output = '';
   let offset = 0;
@@ -40,6 +41,7 @@ export function renderMarkup(text, fields = {}) {
       offset = match.index + field.length + 2;
       const value = Object.hasOwn(fields, field) ? fields[field] : '{' + field + '}';
       if (typeof value !== 'string' || value.length > 4000) throw new Error('Invalid booking field');
+      if (value.includes('@@')) throw new Error('Reserved contract slot delimiter');
       output += escapeHtml(value);
       continue;
     }

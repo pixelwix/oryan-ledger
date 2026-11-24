@@ -1,5 +1,5 @@
-import {actions,button,card,checkbox,field,group,heading,node,statusRow} from './settings-controls.mjs?v=2.11.0';
-import {phase2Error} from './settings-phase2-format.mjs?v=2.11.0';
+import {actions,button,card,checkbox,field,group,heading,node,statusRow} from './settings-controls.mjs?v=2.11.2';
+import {phase2Error} from './settings-phase2-format.mjs?v=2.11.2';
 
 const path='/settings/email';
 

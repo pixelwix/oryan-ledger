@@ -1,6 +1,6 @@
-import {badge,button,card,heading,node,statusRow} from './settings-controls.mjs?v=2.11.0';
-import {VERSION} from './changelog.mjs?v=2.11.0';
-import {backupSize,healthStatus,phase2Date,phase2Error} from './settings-phase2-format.mjs?v=2.11.0';
+import {badge,button,card,heading,node,statusRow} from './settings-controls.mjs?v=2.11.2';
+import {VERSION} from './changelog.mjs?v=2.11.2';
+import {backupSize,healthStatus,phase2Date,phase2Error} from './settings-phase2-format.mjs?v=2.11.2';
 
 const path='/settings/health';
 const checks={database:'Database',helper:'Contract helper',square:'Square',webhook:'Webhook',backup:'Backup'};

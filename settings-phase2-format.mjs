@@ -1,4 +1,4 @@
-import {settingsError} from './settings-format.mjs?v=2.11.0';
+import {settingsError} from './settings-format.mjs?v=2.11.2';
 
 const errors={
  invalid_helper_url:'Enter the HTTPS Apps Script web app URL ending in /exec.',
