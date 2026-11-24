@@ -59,6 +59,18 @@ const bindingLabels={
 };
 export function auditDescription(entry,mask){
  const label=Object.hasOwn(auditLabels,entry.action)?auditLabels[entry.action]:'Changed settings';
+ if(entry.area==='helper'){
+  if(entry.action==='secret_replaced')return 'Rotated the shared secret';
+  if(entry.action==='secret_undone')return 'Restored the shared secret';
+  if(entry.action==='connection_tested')return 'Pinged the helper'+(entry.detail==='Connection succeeded'?' successfully':' (failed)');
+  return 'Updated contract helper settings';
+ }
+ if(entry.area==='email'){
+  if(entry.action==='recipients_updated')return 'Updated alert recipients';
+  if(entry.action==='test_email_sent')return 'Sent a test email';
+  if(entry.action==='test_email_failed')return 'Test email failed';
+  return 'Updated email settings';
+ }
  if(!entry.detail)return label;
  if(entry.area==='people')return label+' '+mask(entry.detail);
  const binding=entry.detail.split(',')[0];

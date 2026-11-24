@@ -1,5 +1,5 @@
-import {validDocumentEmail} from './document-email-address.mjs?v=2.9.1';
-import {contractFields_} from './document-fields.mjs?v=2.9.1';
+import {validDocumentEmail} from './document-email-address.mjs?v=2.11.0';
+import {contractFields_} from './document-fields.mjs?v=2.11.0';
 // Synthetic preview assets only; never a legal contract or payment receipt.
 export const previewPDF='%PDF-1.4\n% SYNTHETIC PREVIEW - NOT A CONTRACT OR RECEIPT\n%%EOF';
 export function previewDocuments(){return [

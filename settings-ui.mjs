@@ -1,35 +1,18 @@
-import {auditDescription,credentialStatus,personStatus,settingsDate,settingsError,storageWarning,visiblePeople} from './settings-format.mjs?v=2.9.1';
+import {auditDescription,credentialStatus,personStatus,settingsDate,settingsError,storageWarning,visiblePeople} from './settings-format.mjs?v=2.11.0';
 
-const sections={people:'People',square:'Square',audit:'Audit log'};
+import {node,button,group,heading,field} from './settings-controls.mjs?v=2.11.0';
+import {phase2Error} from './settings-phase2-format.mjs?v=2.11.0';
+import {settingsSections as sections} from './routes.mjs?v=2.11.0';
+import {helperSettings} from './settings-helper-ui.mjs?v=2.11.0';
+import {emailSettings} from './settings-email-ui.mjs?v=2.11.0';
+import {healthSettings} from './settings-health-ui.mjs?v=2.11.0';
+import {wordingSettings} from './settings-wording-ui.mjs?v=2.11.0';
+import {wordingError,wordingPath} from './settings-wording-format.mjs?v=2.11.0';
+
+const phase2={helper:helperSettings,email:emailSettings,health:healthSettings,wording:wordingSettings};
 const squarePath='/settings/square';
+const auditAreas={people:sections.people,square:sections.square,helper:sections.helper,email:sections.email};
 const pageSize=50;
-
-function node(tag,className='',text){
- const element=document.createElement(tag);
- if(className)element.className=className;
- if(text!==undefined)element.textContent=text;
- return element;
-}
-
-function button(text,action,{primary=false,small=false,disabled=false}={}){
- const control=node('button','btn btn-'+(primary?'primary':'quiet')+(small?' btn-sm':''),text);
- control.type='button';
- control.disabled=disabled;
- control.addEventListener('click',action);
- return control;
-}
-
-function group(className,...children){
- const element=node('div',className);
- element.append(...children);
- return element;
-}
-
-function heading(label,...actions){
- const header=group('page-header',group('page-title-group',node('h2','',label)));
- if(actions.length)header.append(group('page-actions',...actions));
- return header;
-}
 
 function table(labels,rows){
  const grid=node('table','ledger-table');
@@ -43,13 +26,6 @@ function row(...cells){
  const result=node('tr','ledger-row');
  for(const content of cells)result.insertCell().append(content);
  return result;
-}
-
-function field(label,id,input){
- input.id=id;
- const caption=node('label','form-label',label);
- caption.htmlFor=id;
- return group('form-group',caption,input);
 }
 
 function select(options,value){
@@ -67,7 +43,7 @@ function resultPanel(result,success='Success'){
  return panel;
 }
 
-export async function mountSettings({api,auth,route,access,actor,signal,toast,refresh}){
+export async function mountSettings({api,auth,route,access,actor,signal,toast,refresh,guardNavigation}){
  const screen=document.querySelector('#settings-screen');
  const content=node('section','settings-content');
  const label=sections[route.section];
@@ -82,7 +58,7 @@ export async function mountSettings({api,auth,route,access,actor,signal,toast,re
   if(key===route.section)link.setAttribute('aria-current','page');
   nav.append(link);
  }
- sidebar.append(nav,node('p','muted settings-note','Coming next: Contract helper, Email, Backups and health'));
+ sidebar.append(nav);
  const banner=node('div','alert alert-warning settings-banner');
  banner.hidden=true;
  banner.setAttribute('role','alert');
@@ -126,7 +102,7 @@ export async function mountSettings({api,auth,route,access,actor,signal,toast,re
    if(currentDialog!==handle)return;
    if(event.key==='Escape'){event.preventDefault();event.stopImmediatePropagation();close();}
    if(event.key==='Tab'){
-    const controls=[...dialog.querySelectorAll('button,input,select,textarea,iframe')].filter(control=>!control.disabled&&control.getClientRects().length);
+    const controls=[...dialog.querySelectorAll('button,input,select,textarea,iframe,a[href]')].filter(control=>!control.disabled&&control.getClientRects().length);
     const first=controls[0],last=controls[controls.length-1];
     if(!dialog.contains(document.activeElement)||(event.shiftKey?document.activeElement===first:document.activeElement===last)){
      event.preventDefault();
@@ -136,6 +112,7 @@ export async function mountSettings({api,auth,route,access,actor,signal,toast,re
    }
   }
   function close(force=false){
+   if(!backdrop.isConnected)return;
    if(handle.locked&&!force)return;
    for(const input of backdrop.querySelectorAll('input[type=password]'))input.value='';
    backdrop.replaceChildren();
@@ -144,7 +121,7 @@ export async function mountSettings({api,auth,route,access,actor,signal,toast,re
    document.removeEventListener('keydown',onKey,true);
    signal.removeEventListener('abort',cleanup);
    currentDialog=previous;
-   if(previous)previous.backdrop.hidden=false;
+   if(previous?.backdrop.isConnected)previous.backdrop.hidden=false;
    if(opener?.isConnected)opener.focus({preventScroll:true});
    handle.onClose?.();
   }
@@ -166,12 +143,14 @@ export async function mountSettings({api,auth,route,access,actor,signal,toast,re
    async function prompt(){
     try{
      holder.replaceChildren();
-     await apiCall('/settings/reauth','POST',{idToken:await auth.reauth(holder,{signal:controller.signal,
-      theme:document.documentElement.dataset.theme==='dark'?'filled_black':'outline'})});
+     const idToken=await auth.reauth(holder,{signal:controller.signal,
+      theme:document.documentElement.dataset.theme==='dark'?'filled_black':'outline'});
+     signal.throwIfAborted();
+     await apiCall('/settings/reauth','POST',{idToken});
      resolve();
      dialog.close();
     }catch{
-     if(controller.signal.aborted)return;
+     if(controller.signal.aborted||signal.aborted)return;
      dialog.error.hidden=false;
      dialog.error.textContent='Confirm your identity with your current Google account to continue.';
      holder.replaceChildren(button('Try again',prompt));
@@ -181,7 +160,7 @@ export async function mountSettings({api,auth,route,access,actor,signal,toast,re
   });
  }
 
- async function write(action,handle,onSuccess){
+ async function write(action,handle,onSuccess,errorMessage=settingsError){
   if(busy)return;
   busy=true;
   const inputs=handle?[...handle.backdrop.querySelectorAll('input,select,textarea')]:[];
@@ -203,8 +182,8 @@ export async function mountSettings({api,auth,route,access,actor,signal,toast,re
   }catch(error){
    if(signal.aborted||error?.name==='AbortError')return;
    if(error.code==='settings_key_unavailable')showError(storageWarning);
-   if(handle&&handle.backdrop.isConnected){handle.error.textContent=settingsError(error);handle.error.hidden=false;}
-   else showError(settingsError(error));
+   if(handle&&handle.backdrop.isConnected){handle.error.textContent=errorMessage(error);handle.error.hidden=false;}
+   else showError(errorMessage(error));
   }finally{
    busy=false;
    for(const input of inputs)input.disabled=false;
@@ -215,7 +194,7 @@ export async function mountSettings({api,auth,route,access,actor,signal,toast,re
   }
  }
 
- function change(path,method,body,{handle,message='Saved',reload=true}={}){
+ function change(path,method,body,{handle,message='Saved',reload=true,errorMessage}={}){
   return write(()=>apiCall(path,method,body),handle,async response=>{
    if(path.startsWith(squarePath))result=null;
    if(response.environment)refresh(response.environment);
@@ -223,8 +202,12 @@ export async function mountSettings({api,auth,route,access,actor,signal,toast,re
    if(reload)await load();
    else if(path==='/sessions/revoke-all'){await auth.signOut();location.reload();}
    if(!signal.aborted)toast(message);
-  });
+  },errorMessage);
  }
+
+ const renderSection=phase2[route.section];
+ if(renderSection)content.classList.add(route.section==='wording'?'settings-wording':'settings-phase2');
+ const section=renderSection?.({content,banner,apiCall,write,change,modal,confirm,actor,mask,showError,load,signal,toast,guardNavigation,route,access});
 
  function confirm(title,message,label,action){
   modal(title,[node('p','',message)],label,action);
@@ -391,7 +374,7 @@ export async function mountSettings({api,auth,route,access,actor,signal,toast,re
   const peopleByEmail=new Map(people.map(user=>[user.email,user]));
   const actorLabel=email=>mask(email)+(actor===email?' (you)':'');
   const personSelect=select([['','All people'],...people.map(user=>[user.email,actorLabel(user.email)])],person);
-  const areaSelect=select([['','All areas'],['people','People'],['square','Square']],area);
+  const areaSelect=select([['','All areas'],...Object.entries(auditAreas)],area);
   const filters=group('audit-filters');
   for(const [label,control] of [['Person',personSelect],['Area',areaSelect]]){
    const field=node('label');field.append(node('span','form-label',label),control);filters.append(field);
@@ -407,7 +390,7 @@ export async function mountSettings({api,auth,route,access,actor,signal,toast,re
     text.append(' ',node('span','badge badge-due','Only super admins see this'));
    }
    const time=node('time','',settingsDate(entry.at,{time:true}));time.dateTime=entry.at;
-   return row(time,actorLabel(entry.actor),node('span','badge badge-unpriced',entry.area==='people'?'People':'Square'),text);
+   return row(time,actorLabel(entry.actor),node('span','badge badge-unpriced',Object.hasOwn(auditAreas,entry.area)?auditAreas[entry.area]:'Settings'),text);
   });
   content.replaceChildren(heading('Audit log'),banner,filters,rows.length?table(['Time','Person','Area','Change'],rows):
    group('card',node('h3','card-title','No audit entries match these filters'),node('p','card-subtitle','Choose another person or area.')));
@@ -428,6 +411,12 @@ export async function mountSettings({api,auth,route,access,actor,signal,toast,re
   hasMore=data.entries.length===pageSize;
  }
  async function load(){
+  if(section){
+   const data=await apiCall(route.section==='wording'?wordingPath:'/settings/'+route.section);
+   signal.throwIfAborted();
+   section(data);
+   return;
+  }
   if(route.section==='square'){
    square=await apiCall(squarePath);
    signal.throwIfAborted();
@@ -442,5 +431,5 @@ export async function mountSettings({api,auth,route,access,actor,signal,toast,re
   else{await fetchAudit();renderAudit();}
  }
  try{await load();}
- catch(error){if(!signal.aborted){if(error.auth)throw error;showError(settingsError(error));}}
+ catch(error){if(!signal.aborted){if(error.auth)throw error;showError(route.section==='wording'?wordingError(error):section?phase2Error(error):settingsError(error));}}
 }
